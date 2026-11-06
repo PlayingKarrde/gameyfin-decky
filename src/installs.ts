@@ -22,6 +22,8 @@ const finishing = new Set<string>();
 const failed = new Set<string>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let stopped = true;
+let ticking = false; // a tick is awaiting refresh()
+let rerun = false; // kick() arrived mid-tick: tick again right after
 
 function emit() {
   listeners.forEach((l) => l(snapshot));
@@ -41,13 +43,25 @@ export async function refresh(): Promise<Snapshot> {
 
 async function tick() {
   if (stopped) return;
+  if (ticking) {
+    rerun = true;
+    return;
+  }
+  ticking = true;
+  timer = null;
   try {
     await refresh();
   } catch (e) {
     console.warn("[gameyfin] poll failed", e);
+  } finally {
+    ticking = false;
   }
+  if (stopped) return;
   const busy = snapshot.jobs.some((j) => ACTIVE_PHASES.includes(j.phase));
-  if (!stopped) timer = setTimeout(tick, busy ? 1000 : 5000);
+  const delay = rerun ? 0 : busy ? 1000 : 5000;
+  rerun = false;
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(tick, delay);
 }
 
 export function startPolling() {

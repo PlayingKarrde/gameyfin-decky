@@ -170,6 +170,48 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(cm.exception.code, "truncated")
             self.assertEqual(os.listdir(d), [])
 
+    def test_network_error_mid_stream_is_reported(self):
+        class Dropping(FakeResp):
+            def read(self, n=-1):
+                raise TimeoutError("timed out")
+
+        c = FakeClient(b"", {"Content-Type": "application/octet-stream"})
+        c.open_download = lambda *_: Dropping(b"", {"Content-Type": "application/octet-stream"})
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(GameyfinError) as cm:
+                installer.install(c, {"id": 9, "title": "T", "fileSize": 10}, d, "j", noop, lambda: False)
+            self.assertEqual(cm.exception.code, "network")
+            self.assertEqual(os.listdir(d), [])
+
+    def test_unsafe_single_file_name(self):
+        c = FakeClient(b"MZ", {"Content-Type": "application/octet-stream", "Content-Length": "2",
+                               "Content-Disposition": 'attachment; filename=".."'})
+        with tempfile.TemporaryDirectory() as d:
+            res = installer.install(c, {"id": 10, "title": "Dots", "fileSize": 2}, d, "j", noop, lambda: False)
+            self.assertEqual(os.path.dirname(res.install_dir), d)
+            files = [f for f in os.listdir(res.install_dir) if f != installer.MARKER]
+            self.assertEqual(len(files), 1)
+            self.assertTrue(os.path.isfile(os.path.join(res.install_dir, files[0])))
+
+    def test_same_title_finished_meanwhile_is_kept(self):
+        """Another game with the same title lands during our download: don't overwrite it."""
+        body = self._zip_bytes({"Game.exe": b"MZ"})
+        hdrs = {"Content-Type": "application/octet-stream", "Content-Length": str(len(body))}
+        with tempfile.TemporaryDirectory() as d:
+            other = os.path.join(d, "Same")
+
+            class Racing(FakeClient):
+                def open_download(self, game_id, provider):
+                    os.makedirs(other)
+                    with open(os.path.join(other, installer.MARKER), "w") as f:
+                        json.dump({"game_id": "99"}, f)
+                    return super().open_download(game_id, provider)
+
+            res = installer.install(Racing(body, hdrs), {"id": 11, "title": "Same", "fileSize": len(body)}, d,
+                                    "j", noop, lambda: False)
+            self.assertNotEqual(res.install_dir, other)
+            self.assertTrue(os.path.exists(os.path.join(other, installer.MARKER)))
+
     def test_no_space(self):
         c = FakeClient(b"", {})
         with tempfile.TemporaryDirectory() as d:

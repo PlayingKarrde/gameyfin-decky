@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import os
 import re
+import threading
 
 from .client import GameyfinClient, GameyfinError
 
@@ -50,7 +51,8 @@ class ImageCache:
     @staticmethod
     def _write_atomic(path: str, data: bytes) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
+        # Unique tmp: the grid and the artwork step can fetch the same image concurrently.
+        tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "wb") as f:
             f.write(data)
         os.replace(tmp, path)

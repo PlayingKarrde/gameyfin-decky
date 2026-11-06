@@ -29,6 +29,11 @@ class SettingsStore:
                 raw = json.load(f)
         except FileNotFoundError:
             return Settings()
+        except (OSError, ValueError):
+            # Unreadable/corrupt: start unconfigured rather than fail plugin load.
+            return Settings()
+        if not isinstance(raw, dict):
+            return Settings()
         known = {k: v for k, v in raw.items() if k in Settings.__dataclass_fields__}
         return Settings(**known)
 

@@ -8,11 +8,13 @@ then extract with random access via ``zipfile``. Single-file games arrive raw.
 from __future__ import annotations
 
 import email.message
+import http.client
 import json
 import os
 import re
 import shutil
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -118,7 +120,10 @@ def _stream_to_file(resp, path: str, total: int | None, progress: Progress, canc
         while True:
             if cancelled():
                 raise Cancelled()
-            buf = resp.read(CHUNK)
+            try:
+                buf = resp.read(CHUNK)
+            except (OSError, http.client.HTTPException) as e:  # timeout, reset, bad chunking
+                raise GameyfinError(f"Download interrupted after {done} bytes: {e}", code="network") from None
             if not buf:
                 break
             out.write(buf)
@@ -152,7 +157,13 @@ def download(
             if urllib.parse.urlparse(url).scheme not in ("http", "https"):
                 raise GameyfinError(f"Unsupported download link ({url.split(':', 1)[0]})", code="unsupported_link")
             # Follow without X-API-Key, per the Gameyfin API contract.
-            resp = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=60)
+            try:
+                resp = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}),
+                                              timeout=60)
+            except urllib.error.HTTPError as e:
+                raise GameyfinError(f"Download link failed: HTTP {e.code}", status=e.code, code="link_failed") from None
+            except (OSError, http.client.HTTPException) as e:
+                raise GameyfinError(f"Download link failed: {e}", code="unreachable") from None
         length = resp.headers.get("Content-Length")
         total = int(length) if length and length.isdigit() else None
         name = _filename_from_disposition(resp.headers.get("Content-Disposition"))
@@ -255,7 +266,6 @@ def install(
     tmp_dir = os.path.join(dest_root, TMP_DIRNAME)
     os.makedirs(tmp_dir, exist_ok=True)
     part = os.path.join(tmp_dir, f"{job_id}.part")
-    install_dir = choose_install_dir(dest_root, title, game_id)
     staging = os.path.join(tmp_dir, f"{job_id}.staging")
 
     try:
@@ -268,7 +278,8 @@ def install(
             installed = extract_zip(part, staging, progress, cancelled)
         else:
             os.makedirs(staging, exist_ok=True)
-            name = filename or safe_dirname(title)
+            # The server's filename could be '..' or empty after sanitising.
+            name = safe_dirname(filename) if filename else safe_dirname(title)
             os.replace(part, os.path.join(staging, name))
             installed = archive_bytes
         _rmtree(part)
@@ -276,6 +287,9 @@ def install(
         progress("finalizing", installed, installed)
         with open(os.path.join(staging, MARKER), "w", encoding="utf-8") as f:
             json.dump({"game_id": game_id, "title": title, "installed_at": int(time.time())}, f)
+        # Decide the folder only now: another install of a same-titled game may have
+        # finished while we downloaded, and picking earlier would delete its files.
+        install_dir = choose_install_dir(dest_root, title, game_id)
         if os.path.exists(install_dir):  # reinstall of the same game
             _rmtree(install_dir)
         os.replace(staging, install_dir)  # same filesystem: atomic

@@ -1,6 +1,7 @@
 import asyncio
 import os
 import platform
+import threading
 from typing import Any, Callable
 
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
@@ -37,6 +38,7 @@ class Plugin:
     installed: InstalledStore
     pairing: PairingSession | None = None
     jobs_root: str
+    _install_lock: threading.Lock
 
     def _client(self) -> GameyfinClient:
         if not self.settings.server_url:
@@ -177,18 +179,21 @@ class Plugin:
             allowed = {t["path"] for t in install_targets(self._home(), self.settings.custom_install_dir)}
             if target_path not in allowed:
                 raise GameyfinError("Unknown install location", code="bad_target")
-            active = [j for j in jobs.list_jobs(self.jobs_root)
-                      if str(j.get("game_id")) == str(game_id) and j.get("phase") not in jobs.TERMINAL]
-            if active:
-                raise GameyfinError("This game is already being installed", code="busy")
             game = self._client().get_game(game_id)
             os.makedirs(target_path, exist_ok=True)
             check_space(target_path, game.get("fileSize"))
-            job_dir = jobs.create_job(self.jobs_root, {
-                "game_id": str(game_id), "title": game.get("title"), "dest_root": target_path,
-                "server_url": self.settings.server_url, "file_size": game.get("fileSize"),
-                "settings_path": self.store.path,
-            })
+            # Check-then-create under a lock: two quick presses would otherwise both pass
+            # the check and start two workers writing the same folder.
+            with self._install_lock:
+                active = [j for j in jobs.list_jobs(self.jobs_root)
+                          if str(j.get("game_id")) == str(game_id) and j.get("phase") not in jobs.TERMINAL]
+                if active:
+                    raise GameyfinError("This game is already being installed", code="busy")
+                job_dir = jobs.create_job(self.jobs_root, {
+                    "game_id": str(game_id), "title": game.get("title"), "dest_root": target_path,
+                    "server_url": self.settings.server_url, "file_size": game.get("fileSize"),
+                    "settings_path": self.store.path,
+                })
             how = jobs.launch_worker(job_dir, os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules"))
             log.info("Install %s (%s) -> %s via %s", game_id, game.get("title"), target_path, how)
             return {"job_id": os.path.basename(job_dir)}
@@ -246,6 +251,7 @@ class Plugin:
         self.images = ImageCache(decky.DECKY_PLUGIN_RUNTIME_DIR)
         self.installed = InstalledStore(decky.DECKY_PLUGIN_SETTINGS_DIR)
         self.jobs_root = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "jobs")
+        self._install_lock = threading.Lock()
         os.makedirs(self.jobs_root, exist_ok=True)
         log.info("Gameyfin plugin loaded (configured=%s)", bool(self.settings.server_url and self.settings.token))
 

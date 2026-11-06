@@ -62,13 +62,14 @@ export function LibraryPage() {
   // Infinite scroll: fetch next page when the sentinel nears the viewport.
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || !hasMore || loading) return;
+    // Stop on error: otherwise each failed page flips `loading` and immediately retries, forever.
+    if (!el || !hasMore || loading || error) return;
     const io = new IntersectionObserver((e) => e[0].isIntersecting && load(debounced, page + 1), {
       rootMargin: "600px",
     });
     io.observe(el);
     return () => io.disconnect();
-  }, [hasMore, loading, page, debounced, load]);
+  }, [hasMore, loading, error, page, debounced, load]);
 
   const open = (g: GameSummary) => showModal(<GameModal game={g} />);
 
@@ -102,7 +103,16 @@ export function LibraryPage() {
       {error && (
         <div style={{ color: "#ff6b6b", padding: "16px 0" }}>
           {error}
-          {error.includes("not set") && " — configure the server in the Gameyfin quick-access panel."}
+          {error.includes("not set") ? (
+            " — configure the server in the Gameyfin quick-access panel."
+          ) : (
+            <DialogButton
+              style={{ width: "120px", minWidth: 0, marginTop: "10px" }}
+              onClick={() => load(debounced, items.length ? page + 1 : 0)}
+            >
+              Retry
+            </DialogButton>
+          )}
         </div>
       )}
 

@@ -12,9 +12,12 @@ export function GameModal({ game, closeModal }: Props) {
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { jobs, installed } = useInstallState();
-  const job = jobs.find((j) => String(j.game_id) === String(game.id));
+  // An old failed/cancelled job may still be listed; the in-progress one is what matters.
+  const job = jobs.find(
+    (j) => String(j.game_id) === String(game.id) && (ACTIVE_PHASES.includes(j.phase) || j.phase === "done"),
+  );
   const inst = installed.find((g) => g.game_id === String(game.id));
-  const busy = !!job && (ACTIVE_PHASES.includes(job.phase) || job.phase === "done");
+  const busy = !!job;
 
   useEffect(() => {
     getGame(game.id).then((r) => (r.ok ? setDetail(r.data) : setError(r.error.message)));

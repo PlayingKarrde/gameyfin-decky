@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 import time
 
 from .client import GameyfinError
@@ -12,10 +13,15 @@ from .installer import MARKER, free_bytes
 
 
 class InstalledStore:
-    """{game_id: {title, install_dir, exe, appid, installed_at, size}} in installed.json."""
+    """{game_id: {title, install_dir, exe, appid, installed_at, size}} in installed.json.
+
+    Callers run in asyncio.to_thread, so two installs finishing together would race
+    their read-modify-write and drop a record; the lock serialises them.
+    """
 
     def __init__(self, directory: str):
         self.path = os.path.join(directory, "installed.json")
+        self._lock = threading.Lock()
 
     def load(self) -> dict[str, dict]:
         try:
@@ -36,18 +42,20 @@ class InstalledStore:
         return self.load().get(str(game_id))
 
     def put(self, game_id: str, record: dict) -> dict:
-        data = self.load()
-        rec = {**data.get(str(game_id), {}), **record, "game_id": str(game_id)}
-        rec["installed_at"] = int(time.time())
-        data[str(game_id)] = rec
-        self._save(data)
-        return rec
+        with self._lock:
+            data = self.load()
+            rec = {**data.get(str(game_id), {}), **record, "game_id": str(game_id)}
+            rec["installed_at"] = int(time.time())
+            data[str(game_id)] = rec
+            self._save(data)
+            return rec
 
     def remove(self, game_id: str) -> dict | None:
-        data = self.load()
-        rec = data.pop(str(game_id), None)
-        self._save(data)
-        return rec
+        with self._lock:
+            data = self.load()
+            rec = data.pop(str(game_id), None)
+            self._save(data)
+            return rec
 
 
 def delete_game_dir(install_dir: str, game_id: str) -> None:
