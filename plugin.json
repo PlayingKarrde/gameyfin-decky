@@ -1,0 +1,15 @@
+{
+  "name": "Gameyfin",
+  "author": "Seth Powell",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": [
+      "gameyfin",
+      "library",
+      "installer"
+    ],
+    "description": "Browse a self-hosted Gameyfin library in Gaming Mode, install games as Proton shortcuts with artwork, and uninstall them.",
+    "image": ""
+  }
+}

@@ -1,0 +1,37 @@
+name: Release
+
+# Push a tag like v0.1.0 (matching package.json "version") to publish a release with the plugin zip.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Check tag matches package.json
+        run: |
+          v=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "Tag ${GITHUB_REF_NAME} != package.json v$v"; exit 1; }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: python3 -m unittest discover -s tests
+      - run: scripts/package.sh
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.zip
+          generate_release_notes: true
