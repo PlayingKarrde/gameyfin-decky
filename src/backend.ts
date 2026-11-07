@@ -1,5 +1,6 @@
 import { callable } from "@decky/api";
 import type { ArtPlan } from "./common/artwork";
+import type { PhoneFormStatus } from "./common/PhoneModal";
 
 export type ApiError = { message: string; status: number | null; code: string | null };
 export type Result<T> = { ok: true; data: T } | { ok: false; error: ApiError };
@@ -208,14 +209,7 @@ export const setSgdbSquareCovers = callable<[enabled: boolean], Result<PublicSet
 
 // ---- phone pairing -----------------------------------------------------------
 
-export type PairingStatus = {
-  state: "waiting" | "done" | "expired" | "stopped" | "locked";
-  url?: string;
-  code?: string;
-  message?: string;
-  expires_in?: number;
-  settings?: PublicSettings;
-};
+export type PairingStatus = PhoneFormStatus<PublicSettings>;
 export const startPairing = callable<[], Result<PairingStatus>>("start_pairing");
 export const getPairingStatus = callable<[], Result<PairingStatus>>("get_pairing_status");
 export const stopPairing = callable<[], Result<null>>("stop_pairing");

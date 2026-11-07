@@ -14,7 +14,8 @@ from gameyfin.client import GameyfinClient, GameyfinError, normalize_base_url
 from gameyfin.exes import ensure_executable, find_executables, is_windows_exe
 from gameyfin.installed import InstalledStore, delete_game_dir, delete_prefix, install_targets
 from gameyfin.installer import check_space
-from gameyfin.pairing import PairingSession
+from gameyfin import pairing
+from gameyfin.common.phoneform import PhoneForm
 from gameyfin.common.images import ImageCache
 from gameyfin.library import game_detail, page_summary
 from gameyfin.settings import Settings, SettingsStore
@@ -41,7 +42,7 @@ class Plugin:
     images: ImageCache
     sgdb_ids: sgdb.SgdbResolver
     installed: InstalledStore
-    pairing: PairingSession | None = None
+    phone: PhoneForm | None = None
     jobs_root: str
     _install_lock: threading.Lock
 
@@ -122,26 +123,26 @@ class Plugin:
 
     async def start_pairing(self) -> dict:
         def run():
-            if self.pairing:
-                self.pairing.stop()
-            self.pairing = PairingSession(self.settings.server_url, self._pair_submit,
-                                          has_token=bool(self.settings.token),
-                                          has_sgdb_key=bool(self.settings.sgdb_key)).start()
-            log.info("Pairing server listening on %s:%s", self.pairing.ip, self.pairing.port)
-            return self.pairing.status()
+            if self.phone:
+                self.phone.stop()
+            self.phone = pairing.session(self.settings.server_url, self._pair_submit,
+                                         has_token=bool(self.settings.token),
+                                         has_sgdb_key=bool(self.settings.sgdb_key)).start()
+            log.info("Pairing server listening on %s:%s", self.phone.ip, self.phone.port)
+            return self.phone.status()
         return await self._call(run)
 
     async def get_pairing_status(self) -> dict:
-        if not self.pairing:
+        if not self.phone:
             return _ok({"state": "stopped"})
-        st = self.pairing.status()
+        st = self.phone.status()
         if st["state"] == "done":
             st["settings"] = self.settings.public()
         return _ok(st)
 
     async def stop_pairing(self) -> dict:
-        if self.pairing:
-            self.pairing.stop()
+        if self.phone:
+            self.phone.stop()
         return _ok(None)
 
     # ---- SteamGridDB -------------------------------------------------------
@@ -394,8 +395,8 @@ class Plugin:
         log.info("Gameyfin plugin loaded (configured=%s)", bool(self.settings.server_url and self.settings.token))
 
     async def _unload(self):
-        if self.pairing:
-            self.pairing.stop()
+        if self.phone:
+            self.phone.stop()
         log.info("Gameyfin plugin unloading")
 
     async def _uninstall(self):

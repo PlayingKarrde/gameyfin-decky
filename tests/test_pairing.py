@@ -9,6 +9,7 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "py_modules"))
 
 from gameyfin import pairing  # noqa: E402
+from gameyfin.common import phoneform  # noqa: E402
 
 
 def req(url, data=None):
@@ -31,7 +32,7 @@ class PairingTests(unittest.TestCase):
             self.got.append((url, token, sgdb_key))
             return "Connected."
 
-        self.s = pairing.PairingSession("http://gf.local:8080", submit).start()
+        self.s = pairing.session("http://gf.local:8080", submit).start()
         self.base = f"http://127.0.0.1:{self.s.port}"
         self.addCleanup(self.s.stop)
 
@@ -52,7 +53,7 @@ class PairingTests(unittest.TestCase):
             urllib.request.urlopen(f"{self.base}/{self.s.code}", timeout=2)
 
     def test_locks_after_guessing(self):
-        for _ in range(pairing.MAX_BAD_REQUESTS):
+        for _ in range(phoneform.MAX_BAD_REQUESTS):
             req(f"{self.base}/AAAAAA")
         self.assertEqual(self.s.state, "locked")
 
@@ -63,16 +64,23 @@ class PairingTests(unittest.TestCase):
 
     def test_needs_something(self):
         code, body = req(f"{self.base}/{self.s.code}", {"server_url": "http://gf.local:8080", "token": ""})
-        self.assertEqual(code, 400)
+        self.assertFalse(json.loads(body)["ok"])
+        code, body = req(f"{self.base}/{self.s.code}", {"server_url": "", "token": "gf_pat_x"})
+        self.assertEqual(json.loads(body)["message"], "Server URL is required")
         self.assertEqual(self.s.state, "waiting")
 
     def test_page_mentions_saved_values(self):
-        self.assertIn("already has a token", pairing._page("", has_token=True))
-        self.assertIn("already saved", pairing._page("", has_sgdb_key=True))
-        self.assertIn("steamgriddb.com/profile/preferences/api", pairing._page(""))
+        self.assertIn("already has a token", pairing.page("", has_token=True))
+        self.assertIn("already saved", pairing.page("", has_sgdb_key=True))
+        self.assertIn("steamgriddb.com/profile/preferences/api", pairing.page(""))
+
+    def test_page_fields(self):
+        page = pairing.page("http://gf.local:8080")
+        for name in ("server_url", "token", "sgdb_key"):
+            self.assertIn(f'name="{name}"', page)
 
     def test_html_escapes_server_url(self):
-        self.assertNotIn("<script>alert", pairing._page('"><script>alert(1)</script>'))
+        self.assertNotIn("<script>alert", pairing.page('"><script>alert(1)</script>'))
 
 
 if __name__ == "__main__":
