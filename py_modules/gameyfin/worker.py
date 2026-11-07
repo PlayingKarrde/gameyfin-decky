@@ -17,8 +17,9 @@ from . import jobs
 from .client import GameyfinClient, GameyfinError
 from .exes import (LINUX, WINDOWS, find_executables, gog_play_task, is_ambiguous, is_windows_exe, preferred_kind,
                    restore_exec_bits)
+from .deps import find_redists, write_wrapper
 from .installer import Cancelled, install
-from .installers import InstallerError, find_installer, install_from_installer
+from .installers import InstallerError, find_installers, install_from_installers
 
 
 class Reporter:
@@ -48,11 +49,12 @@ class Reporter:
         self.update(phase=phase, done=done, total=total, speed=round(self._speed))
 
 
-def _load_token(spec: dict) -> str:
+def _load_settings(spec: dict) -> dict:
     if spec.get("settings_path"):
         with open(spec["settings_path"], encoding="utf-8") as f:
-            return json.load(f).get("token", "")
-    return os.environ.get("GAMEYFIN_TOKEN", "")
+            raw = json.load(f)
+        return raw if isinstance(raw, dict) else {}
+    return {"token": os.environ.get("GAMEYFIN_TOKEN", "")}
 
 
 def run(job_dir: str) -> int:
@@ -69,20 +71,22 @@ def run(job_dir: str) -> int:
     cancelled = lambda: cancel["flag"] or jobs.cancel_requested(job_dir)  # noqa: E731
 
     try:
-        client = GameyfinClient(spec["server_url"], _load_token(spec))
+        settings = _load_settings(spec)
+        client = GameyfinClient(spec["server_url"], settings.get("token", ""))
         game = client.get_game(spec["game_id"])
         rep.update(title=game.get("title") or spec.get("title"))
         res = install(client, game, spec["dest_root"], spec["job_id"], rep.progress, cancelled,
                       provider=spec.get("provider"), install_dir=spec.get("install_dir"))
         installed_bytes = res.installed_bytes
-        setup = find_installer(res.install_dir)
-        if setup and spec.get("innoextract") and os.path.isfile(spec["innoextract"]):
-            # GOG-style installer: unpack it into a normal game folder.
+        warnings: list[str] = []
+        setups = find_installers(res.install_dir)
+        if setups and spec.get("innoextract") and os.path.isfile(spec["innoextract"]):
+            # GOG-style installers (base game + DLC): unpack into a normal game folder.
             try:
-                installed_bytes = install_from_installer(spec["innoextract"], res.install_dir, setup,
-                                                         rep.progress, cancelled)
+                inst = install_from_installers(spec["innoextract"], res.install_dir, setups, rep.progress, cancelled)
             except InstallerError as e:
                 raise GameyfinError(f"Couldn't unpack the installer: {e}", code="installer_failed") from None
+            installed_bytes, warnings = inst.installed_bytes, inst.warnings
         cands = find_executables(res.install_dir, game.get("title") or "",
                                  prefer=preferred_kind(game.get("platforms")))
         ambiguous = is_ambiguous(cands)
@@ -102,7 +106,15 @@ def run(job_dir: str) -> int:
             launch = {"launch_args": task["args"], "work_dir": task["work_dir"]}
         if any(c["kind"] == LINUX for c in cands):
             restore_exec_bits(res.install_dir)  # Gameyfin's zips drop Unix modes
-        rep.update(phase="done", install_dir=res.install_dir, exe_candidates=cands[:12], **launch,
+        # Bundled VC++/DirectX/... run in the prefix on first launch (Windows games only).
+        deps: dict = {}
+        if settings.get("install_deps", True) and any(c["kind"] == WINDOWS for c in cands):
+            redists = find_redists(res.install_dir)
+            wrapper = write_wrapper(res.install_dir, redists)
+            if wrapper:
+                deps = {"deps_wrapper": wrapper, "deps": [r["label"] for r in redists]}
+        rep.update(phase="done", install_dir=res.install_dir, exe_candidates=cands[:12], **launch, **deps,
+                   warnings=warnings,
                    exe_ambiguous=ambiguous, installed_bytes=installed_bytes,
                    server_file_size=game.get("fileSize"),
                    done=installed_bytes, total=installed_bytes, speed=0, finished_at=time.time())

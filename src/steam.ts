@@ -57,8 +57,8 @@ export async function upsertShortcut(spec: ShortcutSpec, existing?: number | nul
   SteamClient.Apps.SetShortcutName(appId, spec.name);
   SteamClient.Apps.SetShortcutExe(appId, quote(spec.exe));
   SteamClient.Apps.SetShortcutStartDir(appId, quote(spec.startDir));
-  // Only when we have something to set: an update must not wipe options the user added.
-  if (spec.launchOptions) SteamClient.Apps.SetAppLaunchOptions(appId, spec.launchOptions);
+  // Only when we have something to say ("" clears ours): never wipe the user's own options.
+  if (spec.launchOptions !== undefined) SteamClient.Apps.SetAppLaunchOptions(appId, spec.launchOptions);
   await waitForDetails(appId, (d) => d?.strDisplayName === spec.name, 2000);
   return appId;
 }

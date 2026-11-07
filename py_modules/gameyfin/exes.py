@@ -18,6 +18,7 @@ EXCLUDE = (
     "physx*", "*uninst*", "unins*", "*setup*", "*install*", "*redist*", "ue4prereq*", "ueprereq*",
     "*launcherhelper*", "easyanticheat*", "start_protected_game*", "*eac*setup*", "notification_helper*",
     "dowser*", "cefsharp*", "*subprocess*", "*webhelper*", "zfgamebrowser*", "quicksfv*", "scriptinterpreter*",
+    "patch_*",  # GOG patch installers left next to an unpacked game
     # Linux helpers
     "chrome-sandbox", "chrome_crashpad_handler", "xdg-*", "*.so", "*.so.*", "ldd*", "steam_appid*",
 )
@@ -116,20 +117,40 @@ def preferred_kind(platforms: list[str] | None) -> str | None:
     return None
 
 
+def read_gog_infos(install_dir: str) -> list[tuple[str, dict]]:
+    """The top-level goggame-<id>.info files as (name, parsed dict); unreadable ones skipped."""
+    try:
+        names = sorted(n for n in os.listdir(install_dir) if n.startswith("goggame-") and n.endswith(".info"))
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        try:
+            with open(os.path.join(install_dir, name), encoding="utf-8-sig") as f:
+                info = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(info, dict):
+            out.append((name, info))
+    return out
+
+
+def is_gog_dlc(info: dict) -> bool:
+    """DLC info files point rootGameId at the base game; the base game's equals its gameId."""
+    gid, root = str(info.get("gameId") or ""), str(info.get("rootGameId") or "")
+    return bool(root and gid and root != gid)
+
+
 def gog_play_task(install_dir: str) -> dict | None:
     """GOG's goggame-<id>.info names the primary launch target, with arguments and
     working dir (DOSBox/ScummVM titles need them). {path, args, work_dir} or None."""
-    try:
-        infos = [n for n in os.listdir(install_dir) if n.startswith("goggame-") and n.endswith(".info")]
-    except OSError:
-        return None
-    for name in sorted(infos):
-        try:
-            with open(os.path.join(install_dir, name), encoding="utf-8-sig") as f:
-                tasks = json.load(f).get("playTasks") or []
-        except (OSError, ValueError, AttributeError):
-            continue
-        for t in tasks:
+    loaded = read_gog_infos(install_dir)
+    # With DLC installed there are several info files: the base game's comes first.
+    loaded.sort(key=lambda x: (is_gog_dlc(x[1]), x[0]))
+    for _, info in loaded:
+        for t in info.get("playTasks") or []:
+            if not isinstance(t, dict):
+                continue
             if t.get("isPrimary") and t.get("type") == "FileTask" and t.get("path"):
                 rel = t["path"].replace("\\", "/").lstrip("/")
                 full = os.path.realpath(os.path.join(install_dir, rel))

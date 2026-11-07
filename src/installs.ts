@@ -142,6 +142,16 @@ export const activeJobFor = (s: Snapshot, gameId: string) =>
 
 // ---- Steam shortcut ------------------------------------------------------------
 
+/** Steam launch options: the dependency wrapper and/or GOG's game arguments. "" clears a
+ *  wrapper we set before (its script may be gone); undefined leaves the user's own alone. */
+function launchOptionsFor(installDir: string, extra: Partial<InstalledGame>, prev?: InstalledGame): string | undefined {
+  const parts: string[] = [];
+  if (extra.deps_wrapper) parts.push(`/bin/bash "${installDir}/${extra.deps_wrapper}" %command%`);
+  if (extra.launch_args) parts.push(extra.launch_args);
+  if (parts.length) return parts.join(" ");
+  return prev?.deps_wrapper ? "" : undefined;
+}
+
 /** Create or update the shortcut (+ compat tool) and record it. Returns the appid. */
 async function addShortcut(
   gameId: string,
@@ -153,10 +163,9 @@ async function addShortcut(
 ): Promise<number> {
   const exe = `${installDir}/${rel}`;
   const startDir = extra.work_dir ? `${installDir}/${extra.work_dir}` : exe.slice(0, exe.lastIndexOf("/"));
-  const appId = await upsertShortcut(
-    { name: title, exe, startDir, launchOptions: extra.launch_args ?? undefined },
-    prevAppId,
-  );
+  const prev = snapshot.installed.find((g) => g.game_id === String(gameId));
+  const launchOptions = launchOptionsFor(installDir, extra, prev);
+  const appId = await upsertShortcut({ name: title, exe, startDir, launchOptions }, prevAppId);
   let tool: string | null = null;
   if (isWindowsExe(rel)) {
     tool = await pickCompatTool(appId);
@@ -197,6 +206,8 @@ export async function finishInstall(job: JobState, exeRel?: string, manual = fal
   const extra: Partial<InstalledGame> = {
     size: job.installed_bytes ?? null,
     server_file_size: job.server_file_size ?? null,
+    deps_wrapper: job.deps_wrapper ?? null,
+    deps: job.deps ?? null,
   };
   // GOG's launch arguments / working dir belong to its primary exe only.
   const primary = job.exe_candidates?.[0]?.path;
@@ -218,7 +229,9 @@ export async function finishInstall(job: JobState, exeRel?: string, manual = fal
     const hadShortcut = !!prev?.appid && shortcutExists(prev.appid);
     const appId = await addShortcut(job.game_id, title, job.install_dir, rel, prev?.appid, extra);
     await dismissJob(job.job_id);
-    toaster.toast({ title: "Gameyfin", body: isUpdate ? `${title} updated` : `${title} is ready to play` });
+    const deps = job.deps?.length ? ` The first launch also installs ${job.deps.join(", ")}, so it takes longer.` : "";
+    toaster.toast({ title: "Gameyfin", body: (isUpdate ? `${title} updated.` : `${title} is ready to play.`) + deps });
+    for (const w of job.warnings ?? []) toaster.toast({ title: `Gameyfin: ${title}`, body: w });
     // An update keeps the existing shortcut and its artwork (which the user may have customised).
     if (!(isUpdate && hadShortcut)) await applyGameArtwork(job.game_id, appId);
   } catch (e) {
@@ -236,7 +249,11 @@ export const finishFailed = (jobId: string) => failed.has(jobId);
 export async function readdToSteam(inst: InstalledGame, exeRel?: string): Promise<void> {
   const rel = exeRel ?? inst.exe;
   if (!rel) throw new Error("No executable chosen");
-  const keepLaunch = rel === inst.exe ? { launch_args: inst.launch_args, work_dir: inst.work_dir } : {};
+  const keepLaunch: Partial<InstalledGame> = {
+    deps_wrapper: inst.deps_wrapper ?? null,
+    deps: inst.deps ?? null,
+    ...(rel === inst.exe ? { launch_args: inst.launch_args, work_dir: inst.work_dir } : {}),
+  };
   const appId = await addShortcut(inst.game_id, inst.title, inst.install_dir, rel, inst.appid, keepLaunch);
   toaster.toast({ title: "Gameyfin", body: `${inst.title} is back in your library` });
   void refresh();

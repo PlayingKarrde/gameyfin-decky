@@ -1,18 +1,24 @@
-import { ButtonItem, Field, PanelSection, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, Field, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import { openFilePicker, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
-import { getInstallTargets, getSettings, setCustomInstallDir } from "../backend";
+import { getInstallTargets, getSettings, setCustomInstallDir, setInstallDeps } from "../backend";
 
 // FileSelectionType is a `const enum` in @decky/api's types and isn't exported at runtime.
 const FOLDER = 1;
 
-/** Optional extra install root shown in the install picker (internal + SD are automatic). */
+/** Install options: an optional extra install root (internal + SD are automatic) and
+ *  whether bundled redistributables run on first launch. */
 export function InstallLocationPanel() {
   const [saved, setSaved] = useState("");
+  const [deps, setDeps] = useState(true);
   const [home, setHome] = useState("/home/deck");
 
   useEffect(() => {
-    getSettings().then((r) => r.ok && setSaved(r.data.custom_install_dir ?? ""));
+    getSettings().then((r) => {
+      if (!r.ok) return;
+      setSaved(r.data.custom_install_dir ?? "");
+      setDeps(r.data.install_deps ?? true);
+    });
     // The internal target is <home>/Games/Gameyfin; use its home as the picker's start.
     getInstallTargets().then((r) => {
       const internal = r.ok ? r.data.find((t) => t.id === "internal") : undefined;
@@ -38,8 +44,25 @@ export function InstallLocationPanel() {
     }
   };
 
+  const toggleDeps = async (on: boolean) => {
+    setDeps(on);
+    const r = await setInstallDeps(on);
+    if (!r.ok) {
+      setDeps(!on);
+      toaster.toast({ title: "Gameyfin", body: r.error.message });
+    }
+  };
+
   return (
-    <PanelSection title="Install location">
+    <PanelSection title="Installs">
+      <PanelSectionRow>
+        <ToggleField
+          label="Install bundled dependencies"
+          description="Run a game's own Visual C++, DirectX, XNA and OpenAL installers in its Proton prefix on first launch. Applies to new installs and updates."
+          checked={deps}
+          onChange={toggleDeps}
+        />
+      </PanelSectionRow>
       <PanelSectionRow>
         <Field
           label="Custom folder"

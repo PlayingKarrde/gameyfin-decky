@@ -1,11 +1,13 @@
-// Adds "Uninstall" (and "Update") to the Steam library context menu of games the plugin
-// installed. Steam's own "Remove non-Steam game" only deletes the shortcut.
+// Adds a "Gameyfin" submenu (Update, Uninstall) to the Steam library context menu of games
+// the plugin installed. Steam's own "Remove non-Steam game" only deletes the shortcut.
+// One submenu rather than loose items keeps Steam's menu from growing with every feature.
 //
 // Steam's menu internals are undocumented; this follows decky-steamgriddb's
 // contextMenuPatch (checked against the Nov 2026 client). Every step is guarded:
 // if Steam changes shape, the menu simply goes without our items.
 import {
   Export,
+  MenuGroup,
   MenuItem,
   Patch,
   afterPatch,
@@ -32,29 +34,32 @@ function findLibraryContextMenu(): any | null {
   }
 }
 
-/** Our items for this appid, or [] if it isn't a Gameyfin install. */
+/** Our submenu for this appid, or [] if it isn't a Gameyfin install (or nothing applies). */
 function itemsFor(appid: number): ReactElement[] {
   const snap = getSnapshot();
   const inst = snap.installed.find((g) => g.appid === appid);
   if (!inst) return [];
   const st = statusFor(snap, inst.game_id);
   const busy = snap.jobs.some((j) => String(j.game_id) === inst.game_id && j.phase !== "error" && j.phase !== "cancelled");
-  const out: ReactElement[] = [];
-  if (!busy && st?.update_available && healthOf(inst, st) === "ok") {
-    out.push(
-      <MenuItem key={`${KEY_PREFIX}update`} onSelected={() => void confirmUpdate(inst, st)}>
-        Update (Gameyfin)…
+  if (busy) return [];
+  const items: ReactElement[] = [];
+  if (st?.update_available && healthOf(inst, st) === "ok") {
+    items.push(
+      <MenuItem key="update" onSelected={() => void confirmUpdate(inst, st)}>
+        Update…
       </MenuItem>,
     );
   }
-  if (!busy) {
-    out.push(
-      <MenuItem key={`${KEY_PREFIX}uninstall`} onSelected={() => void confirmUninstall(inst)}>
-        Uninstall (Gameyfin)…
-      </MenuItem>,
-    );
-  }
-  return out;
+  items.push(
+    <MenuItem key="uninstall" onSelected={() => void confirmUninstall(inst)}>
+      Uninstall…
+    </MenuItem>,
+  );
+  return [
+    <MenuGroup key={`${KEY_PREFIX}menu`} label="Gameyfin">
+      {items}
+    </MenuGroup>,
+  ];
 }
 
 /** Insert before "Properties…", like decky-steamgriddb, after removing stale copies. */
@@ -64,10 +69,12 @@ function splice(children: any[], appid: number) {
   }
   const items = itemsFor(appid);
   if (!items.length) return;
-  let at = children.findIndex((item) =>
+  const at = children.findIndex((item) =>
     findInReactTree(item, (x: any) => x?.onSelected && x.onSelected.toString().includes("AppProperties")),
   );
-  if (at < 0) at = children.length;
+  // Only the top-level menu has "Properties…". The "Manage ›" submenu is rendered by the
+  // same component and passes isAppMenu, so without this guard it got a second copy.
+  if (at < 0) return;
   children.splice(at, 0, ...items);
 }
 

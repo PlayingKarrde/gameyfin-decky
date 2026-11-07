@@ -8,7 +8,7 @@ from typing import Any, Callable
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
 import decky
 
-from gameyfin import jobs
+from gameyfin import jobs, selfupdate
 from gameyfin.client import GameyfinClient, GameyfinError, normalize_base_url
 from gameyfin.exes import ensure_executable, find_executables, is_windows_exe
 from gameyfin.installed import InstalledStore, delete_game_dir, delete_prefix, install_targets
@@ -189,6 +189,15 @@ class Plugin:
         self.store.save(self.settings)
         return _ok(self.settings.public())
 
+    async def set_install_deps(self, enabled: bool) -> dict:
+        self.settings = dataclasses.replace(self.settings, install_deps=bool(enabled))
+        self.store.save(self.settings)
+        return _ok(self.settings.public())
+
+    async def check_plugin_update(self, force: bool = False) -> dict:
+        """Newer release on GitHub? {current, latest, newer, url, sha256, page}."""
+        return await self._call(lambda: selfupdate.check(decky.DECKY_PLUGIN_VERSION, force=force))
+
     def _launch_job(self, game_id: str, dest_root: str, extra: dict | None = None) -> dict:
         game = self._client().get_game(game_id)
         os.makedirs(dest_root, exist_ok=True)
@@ -272,7 +281,7 @@ class Plugin:
     async def register_installed(self, game_id: str, record: dict) -> dict:
         """Merge into the record (only keys present are changed). Called after the shortcut exists."""
         keep = ("title", "install_dir", "exe", "appid", "size", "compat_tool", "server_file_size", "launch_args",
-                "work_dir")
+                "work_dir", "deps_wrapper", "deps")
 
         def run():
             rec = self.installed.put(game_id, {k: record[k] for k in keep if k in record})

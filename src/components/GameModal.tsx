@@ -142,6 +142,11 @@ export function GameModal({ game, closeModal }: Props) {
             {detail?.developers.length ? (
               <div style={{ fontSize: "13px", color: "#b8bcbf" }}>{detail.developers.join(", ")}</div>
             ) : null}
+            {inst?.deps?.length ? (
+              <div style={{ fontSize: "13px", color: "#8b929a" }}>
+                Dependencies, installed on first launch: {inst.deps.join(", ")}
+              </div>
+            ) : null}
             {notice && (
               <div
                 style={{

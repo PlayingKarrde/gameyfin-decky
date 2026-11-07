@@ -12,11 +12,13 @@ class Settings:
     server_url: str = ""
     token: str = ""
     custom_install_dir: str = ""
+    # Run bundled VC++/DirectX/... installers in the prefix on a game's first launch.
+    install_deps: bool = True
 
     def public(self) -> dict:
         """Safe view for the frontend: no token, just whether one is set."""
         return {"server_url": self.server_url, "has_token": bool(self.token),
-                "custom_install_dir": self.custom_install_dir}
+                "custom_install_dir": self.custom_install_dir, "install_deps": self.install_deps}
 
 
 class SettingsStore:

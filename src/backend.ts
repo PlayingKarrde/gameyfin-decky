@@ -7,6 +7,7 @@ export type PublicSettings = {
   server_url: string;
   has_token: boolean;
   custom_install_dir: string;
+  install_deps: boolean;
 };
 
 export type ConnectionInfo = {
@@ -115,6 +116,10 @@ export type JobState = {
   server_file_size?: number | null;
   launch_args?: string;
   work_dir?: string;
+  /** Bundled-redistributable wrapper (relative to install_dir) and what it installs. */
+  deps_wrapper?: string;
+  deps?: string[];
+  warnings?: string[];
 };
 export type InstalledGame = {
   game_id: string;
@@ -127,6 +132,8 @@ export type InstalledGame = {
   server_file_size?: number | null;
   launch_args?: string | null;
   work_dir?: string | null;
+  deps_wrapper?: string | null;
+  deps?: string[] | null;
   installed_at: number;
 };
 
@@ -151,6 +158,16 @@ export const ACTIVE_PHASES: JobPhase[] = [
 ];
 
 export const getInstallTargets = callable<[], Result<InstallTarget[]>>("get_install_targets");
+export const setInstallDeps = callable<[enabled: boolean], Result<PublicSettings>>("set_install_deps");
+export type PluginUpdate = {
+  current: string;
+  latest: string;
+  newer: boolean;
+  url: string | null;
+  sha256: string | null;
+  page: string | null;
+};
+export const checkPluginUpdate = callable<[force: boolean], Result<PluginUpdate>>("check_plugin_update");
 export const setCustomInstallDir = callable<[path: string], Result<PublicSettings>>("set_custom_install_dir");
 export const startInstall = callable<[game_id: string, target_path: string], Result<{ job_id: string }>>(
   "start_install",
