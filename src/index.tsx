@@ -1,4 +1,4 @@
-import { ButtonItem, PanelSection, PanelSectionRow, staticClasses } from "@decky/ui";
+import { ButtonItem, PanelSection, PanelSectionRow, showModal, staticClasses } from "@decky/ui";
 import { definePlugin, routerHook, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { FaServer } from "react-icons/fa";
@@ -8,7 +8,8 @@ import { LIBRARY_ROUTE, LibraryPage, openLibrary } from "./components/LibraryPag
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { InstallLocationPanel } from "./components/InstallLocationPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { ArtworkPanel } from "./components/ArtworkPanel";
+import { ArtworkPanel } from "./common/ArtworkPanel";
+import { PairingModal } from "./components/PairingModal";
 import { healthOf, startPolling, stopPolling, useInstallState } from "./installs";
 
 function LibraryButtons({ configured }: { configured: boolean }) {
@@ -111,7 +112,12 @@ function Content() {
       <LibraryButtons configured={configured} />
       <DownloadsPanel />
       <SettingsPanel onSaved={onSaved} />
-      <ArtworkPanel settings={pushed} onSaved={onSaved} />
+      <ArtworkPanel
+        title="Gameyfin"
+        settings={pushed}
+        onSaved={onSaved}
+        phone={(done) => showModal(<PairingModal onPaired={done} />)}
+      />
       <InstallLocationPanel />
     </>
   );

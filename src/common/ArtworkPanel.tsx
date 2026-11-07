@@ -1,18 +1,30 @@
-import { ButtonItem, Field, PanelSection, PanelSectionRow, TextField, ToggleField, showModal } from "@decky/ui";
+// QAM section for the optional SteamGridDB API key. Synced from decky-common; edit it there.
+//
+// Backend contract (the plugin's src/backend.ts must export these):
+//   PublicSettings                 type with has_sgdb_key: boolean and sgdb_square_covers: boolean
+//   getSettings()                  -> Result<PublicSettings>
+//   setSgdbKey(key)                -> Result<PublicSettings>   validates against SGDB before saving
+//   clearSgdbKey()                 -> Result<PublicSettings>
+//   setSgdbSquareCovers(enabled)   -> Result<PublicSettings>
+import { ButtonItem, Field, PanelSection, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
 import { toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { PublicSettings, clearSgdbKey, getSettings, setSgdbKey, setSgdbSquareCovers } from "../backend";
-import { PairingModal } from "./PairingModal";
 
 type Props = {
-  /** Latest settings pushed from elsewhere (e.g. a phone pairing in the Connection section). */
+  /** Toast title, usually the plugin's name. */
+  title: string;
+  /** Latest settings pushed from elsewhere (e.g. a phone pairing in another section). */
   settings?: PublicSettings | null;
   onSaved?: (s: PublicSettings) => void;
+  /** Optional "send the key from your phone" flow. SteamGridDB's Steam sign-in needs popups,
+   *  which Decky's browser blocks, so a phone is the easy way to copy the key. Call done()
+   *  with the saved settings when the phone has delivered it. */
+  phone?: (done: (s: PublicSettings) => void) => void;
 };
 
-/** Optional SteamGridDB API key. The key is entered on the phone (SteamGridDB's Steam sign-in
- *  needs popups, which Decky's browser blocks) or typed here; it never comes back to the UI. */
-export function ArtworkPanel({ settings, onSaved }: Props) {
+/** The key never comes back to the UI: only whether one is saved. */
+export function ArtworkPanel({ title, settings, onSaved, phone }: Props) {
   const [hasKey, setHasKey] = useState(false);
   const [square, setSquare] = useState(false);
   const [key, setKey] = useState("");
@@ -43,7 +55,7 @@ export function ArtworkPanel({ settings, onSaved }: Props) {
     setHasKey(s.has_sgdb_key);
     setKey("");
     setError(null);
-    toaster.toast({ title: "Gameyfin", body: msg });
+    toaster.toast({ title, body: msg });
     onSaved?.(s);
   };
 
@@ -69,28 +81,43 @@ export function ArtworkPanel({ settings, onSaved }: Props) {
       if (r.ok) saved(r.data, "SteamGridDB key removed");
     });
 
+  const savedText = "Key saved. New installs get a logo, hero and wide capsule from SteamGridDB.";
   return (
     <PanelSection title="SteamGridDB artwork">
-      <PanelSectionRow>
-        <ButtonItem
-          layout="below"
-          description={
-            hasKey
-              ? "Key saved. New installs get a logo, hero and wide capsule from SteamGridDB."
-              : "Optional. Adds logos and better backgrounds. Sign in to SteamGridDB on your phone and send its API key here."
-          }
-          onClick={() => showModal(<PairingModal onPaired={(s) => saved(s, "Paired from phone")} />)}
-        >
-          {hasKey ? "Replace key with phone" : "Add key with phone"}
-        </ButtonItem>
-      </PanelSectionRow>
+      {phone ? (
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            description={
+              hasKey
+                ? savedText
+                : "Optional. Adds logos and better backgrounds. Sign in to SteamGridDB on your phone and send its API key here."
+            }
+            onClick={() => phone((s) => saved(s, "Paired from phone"))}
+          >
+            {hasKey ? "Replace key with phone" : "Add key with phone"}
+          </ButtonItem>
+        </PanelSectionRow>
+      ) : (
+        <PanelSectionRow>
+          <Field
+            focusable={false}
+            childrenLayout="below"
+            description={
+              hasKey
+                ? savedText
+                : "Optional. Adds logos, backgrounds and wide capsules. Get a free API key at steamgriddb.com → Preferences → API."
+            }
+          />
+        </PanelSectionRow>
+      )}
       <PanelSectionRow>
         <TextField
           label="API key"
           bIsPassword
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          description="Or type it: steamgriddb.com → Preferences → API"
+          description={phone ? "Or type it: steamgriddb.com → Preferences → API" : "32 characters"}
         />
       </PanelSectionRow>
       <PanelSectionRow>
