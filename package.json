@@ -1,6 +1,6 @@
 {
   "name": "gameyfin-decky",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Browse, install and uninstall games from a self-hosted Gameyfin server in Steam Gaming Mode",
   "type": "module",
   "scripts": {

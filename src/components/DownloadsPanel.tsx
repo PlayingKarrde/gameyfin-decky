@@ -1,6 +1,6 @@
 import { ButtonItem, PanelSection, PanelSectionRow, ProgressBarWithInfo, showModal } from "@decky/ui";
 import { ACTIVE_PHASES, JobState, cancelInstall, dismissJob, formatBytes } from "../backend";
-import { finishFailed, refresh, useInstallState } from "../installs";
+import { finishFailed, finishInstall, refresh, useInstallState } from "../installs";
 import { ExePickerModal } from "./InstallModals";
 
 const PHASE_TEXT: Record<string, string> = {
@@ -38,7 +38,7 @@ function JobRow({ job }: { job: JobState }) {
     <>
       <PanelSectionRow>
         <ProgressBarWithInfo
-          label={job.title ?? `Game ${job.game_id}`}
+          label={`${job.kind === "update" ? "Update: " : ""}${job.title ?? `Game ${job.game_id}`}`}
           nProgress={job.phase === "done" ? 100 : pct}
           indeterminate={active && pct == null}
           sOperationText={op}
@@ -54,7 +54,19 @@ function JobRow({ job }: { job: JobState }) {
       )}
       {(needsExe || failedFinish) && (
         <PanelSectionRow>
-          <ButtonItem layout="below" onClick={() => showModal(<ExePickerModal job={job} />)}>
+          <ButtonItem
+            layout="below"
+            onClick={() =>
+              showModal(
+                <ExePickerModal
+                  installDir={job.install_dir!}
+                  title={job.title ?? ""}
+                  initial={job.exe_candidates}
+                  onPick={(rel) => void finishInstall(job, rel, true)}
+                />,
+              )
+            }
+          >
             {needsExe ? "Choose executable" : "Add to Steam"}
           </ButtonItem>
         </PanelSectionRow>

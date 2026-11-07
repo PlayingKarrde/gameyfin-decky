@@ -140,7 +140,8 @@ class InstallTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(delete=False) as t:
             path = t.name
         make_stored_zip(path, files)
-        data = open(path, "rb").read()
+        with open(path, "rb") as f:
+            data = f.read()
         os.remove(path)
         return data
 

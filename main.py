@@ -16,6 +16,7 @@ from gameyfin.pairing import PairingSession
 from gameyfin.images import ImageCache
 from gameyfin.library import game_detail, page_summary
 from gameyfin.settings import Settings, SettingsStore
+from gameyfin.status import check_all, files_state
 
 log = decky.logger
 
@@ -129,11 +130,25 @@ class Plugin:
 
     # ---- library -----------------------------------------------------------
 
-    async def list_games(self, page: int = 0, size: int = 50, query: str = "") -> dict:
+    async def list_games(self, page: int = 0, size: int = 50, query: str = "", library_id: str = "") -> dict:
         size = max(1, min(int(size), 100))
         return await self._call(
-            lambda: page_summary(self._client().list_games(page=int(page), size=size, q=query.strip() or None))
+            lambda: page_summary(self._client().list_games(page=int(page), size=size, q=(query or "").strip() or None,
+                                                           library_id=library_id or None))
         )
+
+    async def list_libraries(self) -> dict:
+        """[{id, name}]; empty if the token can't read libraries (e.g. a service key without the scope)."""
+        def run():
+            try:
+                page = self._client().list_libraries()
+            except GameyfinError as e:
+                if e.status == 403:
+                    return []
+                raise
+            return [{"id": str(lib.get("id")), "name": lib.get("name") or f"Library {lib.get('id')}"}
+                    for lib in page.get("items") or []]
+        return await self._call(run)
 
     async def get_game(self, game_id: str) -> dict:
         return await self._call(lambda: game_detail(self._client().get_game(game_id)))
@@ -174,30 +189,65 @@ class Plugin:
         self.store.save(self.settings)
         return _ok(self.settings.public())
 
+    def _launch_job(self, game_id: str, dest_root: str, extra: dict | None = None) -> dict:
+        game = self._client().get_game(game_id)
+        os.makedirs(dest_root, exist_ok=True)
+        check_space(dest_root, game.get("fileSize"))
+        # Check-then-create under a lock: two quick presses would otherwise both pass
+        # the check and start two workers writing the same folder.
+        with self._install_lock:
+            active = [j for j in jobs.list_jobs(self.jobs_root)
+                      if str(j.get("game_id")) == str(game_id) and j.get("phase") not in jobs.TERMINAL]
+            if active:
+                raise GameyfinError("This game is already being installed", code="busy")
+            job_dir = jobs.create_job(self.jobs_root, {
+                "game_id": str(game_id), "title": game.get("title"), "dest_root": dest_root,
+                "server_url": self.settings.server_url, "file_size": game.get("fileSize"),
+                "settings_path": self.store.path, **(extra or {}),
+            })
+        how = jobs.launch_worker(job_dir, os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules"))
+        log.info("%s %s (%s) -> %s via %s", (extra or {}).get("kind", "install").capitalize(), game_id,
+                 game.get("title"), dest_root, how)
+        return {"job_id": os.path.basename(job_dir)}
+
     async def start_install(self, game_id: str, target_path: str) -> dict:
         def run():
             allowed = {t["path"] for t in install_targets(self._home(), self.settings.custom_install_dir)}
             if target_path not in allowed:
                 raise GameyfinError("Unknown install location", code="bad_target")
-            game = self._client().get_game(game_id)
-            os.makedirs(target_path, exist_ok=True)
-            check_space(target_path, game.get("fileSize"))
-            # Check-then-create under a lock: two quick presses would otherwise both pass
-            # the check and start two workers writing the same folder.
-            with self._install_lock:
-                active = [j for j in jobs.list_jobs(self.jobs_root)
-                          if str(j.get("game_id")) == str(game_id) and j.get("phase") not in jobs.TERMINAL]
-                if active:
-                    raise GameyfinError("This game is already being installed", code="busy")
-                job_dir = jobs.create_job(self.jobs_root, {
-                    "game_id": str(game_id), "title": game.get("title"), "dest_root": target_path,
-                    "server_url": self.settings.server_url, "file_size": game.get("fileSize"),
-                    "settings_path": self.store.path,
-                })
-            how = jobs.launch_worker(job_dir, os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules"))
-            log.info("Install %s (%s) -> %s via %s", game_id, game.get("title"), target_path, how)
-            return {"job_id": os.path.basename(job_dir)}
+            return self._launch_job(game_id, target_path)
+        return await self._call(run)
 
+    async def update_game(self, game_id: str) -> dict:
+        """Re-download into the same folder, keeping the shortcut, prefix and chosen exe."""
+        def run():
+            rec = self.installed.get(game_id)
+            if not rec or not rec.get("install_dir"):
+                raise GameyfinError("Game is not installed", code="not_found")
+            if files_state(rec["install_dir"], game_id) == "unmarked":
+                raise GameyfinError("The install folder no longer looks like this game; reinstall instead",
+                                    code="unsafe_delete")
+            return self._launch_job(game_id, os.path.dirname(rec["install_dir"].rstrip("/")),
+                                    {"kind": "update", "install_dir": rec["install_dir"], "exe": rec.get("exe")})
+        return await self._call(run)
+
+    async def get_install_status(self) -> dict:
+        """Per installed game: {game_id, files, update_available, server_missing, server_size, summary, error}."""
+        def run():
+            records = list(self.installed.load().values())
+            try:
+                client = self._client()
+                get_game = client.get_game
+            except GameyfinError:  # not configured: report local file state only
+                get_game = None
+            return check_all(get_game, records)
+        return await self._call(run)
+
+    async def forget_installed(self, game_id: str) -> dict:
+        """Drop the record but leave any files on disk (for moved, missing or unmarked folders)."""
+        def run():
+            rec = self.installed.remove(game_id)
+            log.info("Forgot install record %s (%s)", game_id, (rec or {}).get("title"))
         return await self._call(run)
 
     async def get_jobs(self) -> dict:
@@ -218,9 +268,9 @@ class Plugin:
         return await self._call(lambda: find_executables(install_dir, title)[:30])
 
     async def register_installed(self, game_id: str, record: dict) -> dict:
-        """record: {title, install_dir, exe, appid, size, cover, header}. Called after the shortcut exists."""
-        keep = ("title", "install_dir", "exe", "appid", "size", "compat_tool")
-        return await self._call(lambda: self.installed.put(game_id, {k: record.get(k) for k in keep}))
+        """Merge into the record (only keys present are changed). Called after the shortcut exists."""
+        keep = ("title", "install_dir", "exe", "appid", "size", "compat_tool", "server_file_size")
+        return await self._call(lambda: self.installed.put(game_id, {k: record[k] for k in keep if k in record}))
 
     async def get_installed(self) -> dict:
         return await self._call(lambda: list(self.installed.load().values()))

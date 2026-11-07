@@ -58,7 +58,7 @@ def run(job_dir: str) -> int:
     rep = Reporter(job_dir, {
         "job_id": spec["job_id"], "game_id": spec["game_id"], "title": spec.get("title"),
         "dest_root": spec["dest_root"], "pid": os.getpid(), "started_at": time.time(),
-        "phase": "starting", "done": 0, "total": spec.get("file_size"),
+        "phase": "starting", "done": 0, "total": spec.get("file_size"), "kind": spec.get("kind", "install"),
     })
     rep.update()
 
@@ -71,10 +71,21 @@ def run(job_dir: str) -> int:
         game = client.get_game(spec["game_id"])
         rep.update(title=game.get("title") or spec.get("title"))
         res = install(client, game, spec["dest_root"], spec["job_id"], rep.progress, cancelled,
-                      provider=spec.get("provider"))
+                      provider=spec.get("provider"), install_dir=spec.get("install_dir"))
         cands = find_executables(res.install_dir, game.get("title") or "")
+        ambiguous = is_ambiguous(cands)
+        # Update: keep the exe the user already chose if the new build still has it.
+        keep = spec.get("exe")
+        if keep and os.path.isfile(os.path.join(res.install_dir, keep)):
+            # find_executables may have filtered it out (depth, exclude list), so synthesise if needed.
+            first = [c for c in cands if c["path"] == keep] or [
+                {"path": keep, "size": os.path.getsize(os.path.join(res.install_dir, keep)), "depth": 0,
+                 "name_match": True}]
+            cands = first + [c for c in cands if c["path"] != keep]
+            ambiguous = False
         rep.update(phase="done", install_dir=res.install_dir, exe_candidates=cands[:12],
-                   exe_ambiguous=is_ambiguous(cands), installed_bytes=res.installed_bytes,
+                   exe_ambiguous=ambiguous, installed_bytes=res.installed_bytes,
+                   server_file_size=game.get("fileSize"),
                    done=res.installed_bytes, total=res.installed_bytes, speed=0, finished_at=time.time())
         return 0
     except Cancelled:

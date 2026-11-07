@@ -43,7 +43,11 @@ export const saveSettings = callable<[server_url: string, token: string | null],
 export const testConnection = callable<[server_url: string | null, token: string | null], Result<ConnectionInfo>>(
   "test_connection",
 );
-export const listGames = callable<[page: number, size: number, query: string], Result<GamePage>>("list_games");
+export const listGames = callable<[page: number, size: number, query: string, library_id: string], Result<GamePage>>(
+  "list_games",
+);
+export type Library = { id: string; name: string };
+export const listLibraries = callable<[], Result<Library[]>>("list_libraries");
 export const getGame = callable<[game_id: string], Result<GameDetail>>("get_game");
 export type ImageInfo = { thumb: string } | { content_type: string; size: number; chunks: number };
 export const getImage = callable<[image_url: string], Result<ImageInfo>>("get_image");
@@ -93,6 +97,8 @@ export type JobState = {
   installed_bytes?: number;
   exe_candidates?: ExeCandidate[];
   exe_ambiguous?: boolean;
+  kind?: "install" | "update";
+  server_file_size?: number | null;
 };
 export type InstalledGame = {
   game_id: string;
@@ -102,7 +108,19 @@ export type InstalledGame = {
   appid: number | null;
   size: number | null;
   compat_tool?: string | null;
+  server_file_size?: number | null;
   installed_at: number;
+};
+
+/** From get_install_status: local file health plus server-side update info. */
+export type InstallStatus = {
+  game_id: string;
+  files: "ok" | "missing" | "unmarked";
+  update_available: boolean;
+  server_missing: boolean;
+  server_size: number | null;
+  summary: GameSummary;
+  error: string | null;
 };
 
 export const ACTIVE_PHASES: JobPhase[] = ["queued", "starting", "downloading", "extracting", "finalizing"];
@@ -125,6 +143,9 @@ export const getInstalled = callable<[], Result<InstalledGame[]>>("get_installed
 export const uninstallGame = callable<[game_id: string, remove_prefix: boolean], Result<{ prefix_removed: boolean }>>(
   "uninstall_game",
 );
+export const updateGame = callable<[game_id: string], Result<{ job_id: string }>>("update_game");
+export const getInstallStatus = callable<[], Result<InstallStatus[]>>("get_install_status");
+export const forgetInstalled = callable<[game_id: string], Result<null>>("forget_installed");
 export const prefixExists = callable<[appid: number], Result<boolean>>("prefix_exists");
 export const getArtwork = callable<[image_url: string], Result<{ content_type: string; size: number; chunks: number }>>(
   "get_artwork",

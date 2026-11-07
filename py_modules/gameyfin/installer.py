@@ -256,8 +256,13 @@ def install(
     progress: Progress,
     cancelled: CancelCheck,
     provider: str | None = None,
+    install_dir: str | None = None,
 ) -> InstallResult:
-    """Full install. ``game`` is a GameV1 dict (needs id, title, fileSize)."""
+    """Full install. ``game`` is a GameV1 dict (needs id, title, fileSize).
+
+    ``install_dir``: replace this folder (an update) if it is free or ours,
+    even if the game was renamed on the server since it was installed.
+    """
     game_id = str(game["id"])
     title = game.get("title") or f"game-{game_id}"
     os.makedirs(dest_root, exist_ok=True)
@@ -289,7 +294,8 @@ def install(
             json.dump({"game_id": game_id, "title": title, "installed_at": int(time.time())}, f)
         # Decide the folder only now: another install of a same-titled game may have
         # finished while we downloaded, and picking earlier would delete its files.
-        install_dir = choose_install_dir(dest_root, title, game_id)
+        if not (install_dir and (not os.path.exists(install_dir) or _marker_game_id(install_dir) == game_id)):
+            install_dir = choose_install_dir(dest_root, title, game_id)
         if os.path.exists(install_dir):  # reinstall of the same game
             _rmtree(install_dir)
         os.replace(staging, install_dir)  # same filesystem: atomic

@@ -15,7 +15,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-USER_AGENT = "gameyfin-decky/0.1"
+USER_AGENT = "gameyfin-decky/0.2"
 DEFAULT_TIMEOUT = 15.0
 
 
@@ -144,6 +144,10 @@ class GameyfinClient:
 
     def get_game(self, game_id: str) -> dict:
         return self._json(f"/v1/games/{urllib.parse.quote(str(game_id), safe='')}")
+
+    def list_libraries(self) -> dict:
+        """PageV1<LibraryV1>: {items: [{id, name, ...}]}. Needs libraries:read."""
+        return self._json("/v1/libraries", {"size": 100})
 
     def download_providers(self) -> list[dict]:
         return self._json("/v1/download-providers")

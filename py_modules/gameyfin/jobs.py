@@ -49,6 +49,7 @@ def create_job(jobs_root: str, spec: dict) -> str:
     _write_json(os.path.join(job_dir, "job.json"), {**spec, "job_id": job_id})
     write_state(job_dir, {"job_id": job_id, "game_id": spec.get("game_id"), "title": spec.get("title"),
                           "phase": "queued", "done": 0, "total": spec.get("file_size"),
+                          "kind": spec.get("kind", "install"),
                           "created_at": time.time()})
     return job_dir
 
