@@ -197,11 +197,12 @@ def shell(title: str, body: str, form: bool = True) -> str:
 <div id="msg"></div>
 <script>
 const msg = document.getElementById("msg"), send = document.getElementById("send");
-const fields = () => Array.from(document.querySelectorAll("[name]"));
+// Form controls in the page body only (the <head> has <meta name=...>, which has no value).
+const fields = () => Array.from(document.querySelectorAll("main input[name], main textarea[name], main select[name]"));
 send.addEventListener("click", async () => {
   msg.className = ""; send.disabled = true;
+  const body = Object.fromEntries(fields().map((f) => [f.name, (f.value || "").trim()]));
   try {
-    const body = Object.fromEntries(fields().map((f) => [f.name, f.value.trim()]));
     const r = await fetch(location.pathname, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body) });
     const d = await r.json().catch(() => ({ ok: false, message: "Pairing is closed. Start again on the Deck." }));
