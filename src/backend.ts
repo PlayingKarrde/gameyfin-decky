@@ -1,4 +1,5 @@
 import { callable } from "@decky/api";
+import type { ArtPlan } from "./common/artwork";
 
 export type ApiError = { message: string; status: number | null; code: string | null };
 export type Result<T> = { ok: true; data: T } | { ok: false; error: ApiError };
@@ -198,7 +199,7 @@ export const getArtwork = callable<[image_url: string], Result<{ content_type: s
 // ---- SteamGridDB -------------------------------------------------------------
 
 /** One image URL per Steam artwork slot (Gameyfin API path or SteamGridDB CDN URL). */
-export type ArtPlan = { capsule: string | null; wide: string | null; hero: string | null; logo: string | null };
+export type { ArtPlan };
 export const getArtPlan = callable<[game_id: string], Result<ArtPlan>>("get_art_plan");
 export const dropArtwork = callable<[image_url: string], Result<null>>("drop_artwork");
 export const setSgdbKey = callable<[key: string], Result<PublicSettings>>("set_sgdb_key");

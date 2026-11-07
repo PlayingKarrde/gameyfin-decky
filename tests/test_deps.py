@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "py_modules"))
 
-from gameyfin import deps, selfupdate  # noqa: E402
+from gameyfin import deps  # noqa: E402
 
 
 def touch(root, rel, data=b"MZ"):
@@ -142,23 +142,6 @@ class WrapperTests(unittest.TestCase):
         r = self.launch("/bin/echo", "hello", prefix=False)
         self.assertEqual(r.stdout.strip(), "hello")
         self.assertEqual(self.read_calls(), [])
-
-
-class SelfUpdateTests(unittest.TestCase):
-    def test_versions(self):
-        self.assertTrue(selfupdate.is_newer("0.5.0", "0.4.0"))
-        self.assertTrue(selfupdate.is_newer("v0.10", "0.9.9"))
-        self.assertFalse(selfupdate.is_newer("0.4.0", "0.4"))
-        self.assertFalse(selfupdate.is_newer("0.5.0-beta", "0.4.0"))  # unparsable: never nag
-
-    def test_check_reads_release(self):
-        release = {"tag_name": "v0.6.0", "html_url": "https://example/rel",
-                   "assets": [{"name": "gameyfin-decky-0.6.0.zip", "browser_download_url": "https://example/z.zip",
-                               "digest": "sha256:abc"}]}
-        r = selfupdate.check("0.5.0", force=True, fetch=lambda: release)
-        self.assertEqual((r["newer"], r["latest"], r["url"], r["sha256"]), (True, "0.6.0", "https://example/z.zip", "abc"))
-        release["assets"] = []
-        self.assertFalse(selfupdate.check("0.5.0", force=True, fetch=lambda: release)["newer"])
 
 
 if __name__ == "__main__":

@@ -120,7 +120,7 @@ def main() -> None:
             env = env_all()
             key = env.get("SGDB_KEY") or env.get("sgdb")
             sg = sgdb.SgdbClient(key) if key else None
-            sgdb_id = sg.resolve(game) if sg else None
+            sgdb_id = sgdb.resolve(sg, game) if sg else None
             assets = sg.assets(sgdb_id) if sgdb_id else {}
             out = {"title": game.get("title"), "sgdb_key": bool(key), "sgdb_id": sgdb_id,
                    "plan": sgdb.art_plan(game, assets)}

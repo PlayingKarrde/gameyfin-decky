@@ -27,6 +27,7 @@ jobs:
         run: |
           v=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')
           [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "Tag ${GITHUB_REF_NAME} != package.json v$v"; exit 1; }
+      - run: scripts/sync-common.sh --check
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: python3 -m unittest discover -s tests

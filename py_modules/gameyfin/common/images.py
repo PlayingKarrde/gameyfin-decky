@@ -1,7 +1,7 @@
-"""On-disk cache for Gameyfin images.
+"""On-disk image cache that feeds images to the frontend through the Decky bridge.
 
-Gameyfin images need the API key, so the Steam UI can't load them directly,
-and many covers are >1 MB PNGs, beyond Decky's ~1 MiB bridge cap. Flow:
+Server images usually need the plugin's credentials, so the Steam UI can't load them
+directly, and many covers are >1 MB PNGs, beyond Decky's ~1 MiB bridge cap. Flow:
 
 1. ``describe(url)``: if a thumbnail exists, return it inline. Otherwise
    download the original to disk and report its size and chunk count.
@@ -18,9 +18,9 @@ import re
 import threading
 from typing import Callable
 
-from .client import GameyfinError, Image
+from .net import Image, PluginError
 
-# url -> Image. Gameyfin images need the API key; SteamGridDB CDN images are public.
+# url -> Image: the plugin's authenticated fetch, or sgdb.fetch_image for SGDB's public CDN.
 Fetch = Callable[[str], Image]
 
 # Multiple of 3 so per-chunk base64 strings concatenate into valid base64.
@@ -33,12 +33,16 @@ _THUMB_PREFIX = "data:image/jpeg;base64,"
 
 
 class ImageCache:
-    def __init__(self, directory: str):
+    def __init__(self, directory: str, ignore_query: bool = False):
+        """``ignore_query``: key the cache on the URL without its query string (RomM appends
+        ``?ts=<now>`` for virtual collections, which would otherwise defeat the cache)."""
         self.orig_dir = os.path.join(directory, "images", "orig")
         self.thumb_dir = os.path.join(directory, "images", "thumb")
+        self.ignore_query = ignore_query
 
-    @staticmethod
-    def _key(image_url: str) -> str:
+    def _key(self, image_url: str) -> str:
+        if self.ignore_query:
+            image_url = image_url.split("?", 1)[0]
         return _SAFE.sub("_", image_url.strip("/"))
 
     def _thumb_path(self, url: str) -> str:
@@ -68,7 +72,7 @@ class ImageCache:
         img = fetch(url)
         ext = _EXT.get(img.content_type)
         if not ext:
-            raise GameyfinError(f"Unsupported image type {img.content_type}", code="bad_image")
+            raise PluginError(f"Unsupported image type {img.content_type}", code="bad_image")
         path = os.path.join(self.orig_dir, f"{self._key(url)}.{ext}")
         self._write_atomic(path, img.data)
         return path, img.content_type
@@ -91,17 +95,17 @@ class ImageCache:
     def chunk(self, url: str, index: int) -> str:
         hit = self._find_orig(url)
         if not hit:
-            raise GameyfinError("Image not cached; call get_image first", code="not_cached")
+            raise PluginError("Image not cached; call get_image first", code="not_cached")
         with open(hit[0], "rb") as f:
             f.seek(int(index) * CHUNK_BYTES)
             return base64.b64encode(f.read(CHUNK_BYTES)).decode("ascii")
 
     def save_thumbnail(self, url: str, data_url: str) -> None:
         if not data_url.startswith(_THUMB_PREFIX):
-            raise GameyfinError("Thumbnail must be a JPEG data URL", code="bad_thumb")
+            raise PluginError("Thumbnail must be a JPEG data URL", code="bad_thumb")
         data = base64.b64decode(data_url[len(_THUMB_PREFIX):], validate=True)
         if len(data) > MAX_THUMB_BYTES or data[:3] != b"\xff\xd8\xff":
-            raise GameyfinError("Invalid thumbnail", code="bad_thumb")
+            raise PluginError("Invalid thumbnail", code="bad_thumb")
         self._write_atomic(self._thumb_path(url), data)
         # The original is no longer needed for the grid.
         hit = self._find_orig(url)

@@ -5,7 +5,7 @@ import { GameDetail, GameSummary, formatBytes, getGame, platformLabel } from "..
 import { activeJobFor, healthOf, readdToSteam, refreshStatus, statusFor, useInstallState } from "../installs";
 import { shortcutExists } from "../steam";
 import { ExePickerModal, InstallTargetModal, confirmForget, confirmUninstall, confirmUpdate } from "./InstallModals";
-import { Cover } from "./Cover";
+import { Cover } from "../common/Cover";
 
 type Props = { game: GameSummary; closeModal?: () => void };
 

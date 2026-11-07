@@ -6,8 +6,11 @@
   scripts/cdp.py file.js
   scripts/cdp.py --shot out.png              # screenshot the Big Picture window
 
-The JS is the body of an async function: use `return` / `await`. A `gf(method, ...args)`
-helper is predefined to call this plugin's backend.
+The JS is the body of an async function: use `return` / `await`. A `call(method, ...args)`
+helper (also named `gf` and `rm`) calls the backend of the plugin this script sits in
+(its name is read from ../plugin.json).
+
+Synced from decky-common; edit it there.
 """
 import base64, json, os, socket, struct, sys, urllib.parse, urllib.request
 
@@ -65,8 +68,10 @@ if len(sys.argv) == 3 and sys.argv[1] == "--shot":
     sys.exit(0)
 if len(sys.argv) != 2:
     sys.exit(__doc__)
-GF = "const gf = (m, ...a) => DeckyBackend.call('loader/call_plugin_method', 'Gameyfin', m, ...a);\n"
-js = GF + (sys.stdin.read() if sys.argv[1] == "-" else open(sys.argv[1]).read())
+PLUGIN = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "plugin.json")))["name"]
+PRELUDE = (f"const call = (m, ...a) => DeckyBackend.call('loader/call_plugin_method', {json.dumps(PLUGIN)}, m, ...a);\n"
+           "const gf = call, rm = call;\n")
+js = PRELUDE + (sys.stdin.read() if sys.argv[1] == "-" else open(sys.argv[1]).read())
 res = rpc("SharedJSContext", "Runtime.evaluate", {
     "expression": f"(async () => {{ {js} }})()", "awaitPromise": True, "returnByValue": True})
 if "exceptionDetails" in res:

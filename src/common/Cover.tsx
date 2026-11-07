@@ -1,3 +1,9 @@
+// Cover image loaded through the plugin backend. Synced from decky-common; edit it there.
+//
+// Backend contract (the plugin's src/backend.ts must export these):
+//   getImage(url)            -> Result<{ thumb } | { content_type, size, chunks }>
+//   getImageChunk(url, i)    -> Result<string>
+//   saveThumbnail(url, data) -> Result<null>
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { getImage, getImageChunk, saveThumbnail } from "../backend";
 

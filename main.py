@@ -8,18 +8,20 @@ from typing import Any, Callable
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
 import decky
 
-from gameyfin import jobs, selfupdate, sgdb
+from gameyfin import jobs, sgdb
+from gameyfin.common.selfupdate import Updater
 from gameyfin.client import GameyfinClient, GameyfinError, normalize_base_url
 from gameyfin.exes import ensure_executable, find_executables, is_windows_exe
 from gameyfin.installed import InstalledStore, delete_game_dir, delete_prefix, install_targets
 from gameyfin.installer import check_space
 from gameyfin.pairing import PairingSession
-from gameyfin.images import ImageCache
+from gameyfin.common.images import ImageCache
 from gameyfin.library import game_detail, page_summary
 from gameyfin.settings import Settings, SettingsStore
 from gameyfin.status import check_all, files_state
 
 log = decky.logger
+UPDATER = Updater("PlayingKarrde/gameyfin-decky", "gameyfin-decky-")
 
 
 def _ok(data: Any = None) -> dict:
@@ -176,7 +178,7 @@ class Plugin:
             assets: dict = {}
             if self.settings.sgdb_key:
                 try:
-                    assets = self.sgdb_ids.assets_for(sgdb.SgdbClient(self.settings.sgdb_key), game)
+                    assets = sgdb.assets_for(self.sgdb_ids, sgdb.SgdbClient(self.settings.sgdb_key), game)
                 except GameyfinError as e:
                     log.warning("SteamGridDB lookup for %s failed: %s", game_id, e)
             plan = sgdb.art_plan(game, assets, square=self.settings.sgdb_square_covers)
@@ -263,7 +265,7 @@ class Plugin:
 
     async def check_plugin_update(self, force: bool = False) -> dict:
         """Newer release on GitHub? {current, latest, newer, url, sha256, page}."""
-        return await self._call(lambda: selfupdate.check(decky.DECKY_PLUGIN_VERSION, force=force))
+        return await self._call(lambda: UPDATER.check(decky.DECKY_PLUGIN_VERSION, force=force))
 
     def _launch_job(self, game_id: str, dest_root: str, extra: dict | None = None) -> dict:
         game = self._client().get_game(game_id)

@@ -2,7 +2,7 @@ import { DialogButton, Dropdown, Focusable, Navigation, SteamSpinner, TextField,
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GameSummary, InstallStatus, InstalledGame, Library, formatBytes, listGames, listLibraries } from "../backend";
 import { healthOf, useInstallState } from "../installs";
-import { Cover } from "./Cover";
+import { Cover } from "../common/Cover";
 import { GameModal } from "./GameModal";
 
 export const LIBRARY_ROUTE = "/gameyfin";
