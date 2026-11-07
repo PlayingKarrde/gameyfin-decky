@@ -21,7 +21,7 @@ import zipfile
 from dataclasses import dataclass
 from typing import Callable
 
-from .client import USER_AGENT, GameyfinClient, GameyfinError
+from .client import USER_AGENT, GameyfinClient, GameyfinError, urlopen
 
 CHUNK = 1024 * 1024
 SPACE_MARGIN = 512 * 1024 * 1024
@@ -158,7 +158,7 @@ def download(
                 raise GameyfinError(f"Unsupported download link ({url.split(':', 1)[0]})", code="unsupported_link")
             # Follow without X-API-Key, per the Gameyfin API contract.
             try:
-                resp = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}),
+                resp = urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}),
                                               timeout=60)
             except urllib.error.HTTPError as e:
                 raise GameyfinError(f"Download link failed: HTTP {e.code}", status=e.code, code="link_failed") from None

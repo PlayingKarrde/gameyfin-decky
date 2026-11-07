@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import os
 import platform
 import threading
@@ -9,7 +10,7 @@ import decky
 
 from gameyfin import jobs
 from gameyfin.client import GameyfinClient, GameyfinError, normalize_base_url
-from gameyfin.exes import find_executables
+from gameyfin.exes import ensure_executable, find_executables, is_windows_exe
 from gameyfin.installed import InstalledStore, delete_game_dir, delete_prefix, install_targets
 from gameyfin.installer import check_space
 from gameyfin.pairing import PairingSession
@@ -72,8 +73,7 @@ class Plugin:
         except GameyfinError as e:
             return _err(e)
         new_token = (token or "").strip() or self.settings.token
-        self.settings = Settings(server_url=url, token=new_token,
-                                 custom_install_dir=self.settings.custom_install_dir)
+        self.settings = dataclasses.replace(self.settings, server_url=url, token=new_token)
         self.store.save(self.settings)
         log.info("Settings saved (server=%s, token set=%s)", url, bool(new_token))
         return _ok(self.settings.public())
@@ -100,7 +100,7 @@ class Plugin:
         """Runs on the pairing server's thread. Validate first, then save."""
         url = normalize_base_url(server_url)
         info = GameyfinClient(url, token).test_connection()
-        self.settings = Settings(server_url=url, token=token, custom_install_dir=self.settings.custom_install_dir)
+        self.settings = dataclasses.replace(self.settings, server_url=url, token=token)
         self.store.save(self.settings)
         log.info("Paired via phone (server=%s)", url)
         who = f" as {info['username']}" if info.get("username") else ""
@@ -270,7 +270,13 @@ class Plugin:
     async def register_installed(self, game_id: str, record: dict) -> dict:
         """Merge into the record (only keys present are changed). Called after the shortcut exists."""
         keep = ("title", "install_dir", "exe", "appid", "size", "compat_tool", "server_file_size")
-        return await self._call(lambda: self.installed.put(game_id, {k: record[k] for k in keep if k in record}))
+
+        def run():
+            rec = self.installed.put(game_id, {k: record[k] for k in keep if k in record})
+            if rec.get("exe") and rec.get("install_dir") and not is_windows_exe(rec["exe"]):
+                ensure_executable(rec["install_dir"], rec["exe"])  # a hand-picked native launcher
+            return rec
+        return await self._call(run)
 
     async def get_installed(self) -> dict:
         return await self._call(lambda: list(self.installed.load().values()))

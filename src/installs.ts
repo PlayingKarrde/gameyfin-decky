@@ -11,6 +11,7 @@ import {
   dismissJob,
   getGame,
   getInstallStatus,
+  isWindowsExe,
   getInstalled,
   getJobs,
   registerInstalled,
@@ -153,8 +154,13 @@ async function addShortcut(
   const exe = `${installDir}/${rel}`;
   const startDir = exe.slice(0, exe.lastIndexOf("/"));
   const appId = await upsertShortcut({ name: title, exe, startDir }, prevAppId);
-  const tool = await pickCompatTool(appId);
-  if (tool) await setCompatTool(appId, tool);
+  let tool: string | null = null;
+  if (isWindowsExe(rel)) {
+    tool = await pickCompatTool(appId);
+    if (tool) await setCompatTool(appId, tool);
+  } else {
+    await setCompatTool(appId, ""); // native: clear Proton (e.g. a reinstall that switched builds)
+  }
   const saved = await registerInstalled(gameId, {
     ...extra,
     title,

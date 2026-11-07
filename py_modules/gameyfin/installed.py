@@ -103,7 +103,7 @@ def install_targets(home: str, custom: str = "") -> list[dict]:
     for mnt in _removable_mounts():
         targets.append({"id": f"sd:{mnt}", "label": f"SD card ({os.path.basename(mnt)})",
                         "path": os.path.join(mnt, "Games", "Gameyfin"), "probe": mnt})
-    if custom:
+    if custom and os.path.normpath(custom) not in {os.path.normpath(t["path"]) for t in targets}:
         targets.append({"id": "custom", "label": "Custom folder", "path": custom,
                         "probe": _existing_parent(custom)})
     for t in targets:

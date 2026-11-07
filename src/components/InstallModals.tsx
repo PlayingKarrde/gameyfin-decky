@@ -19,6 +19,10 @@ import { removeShortcut } from "../steam";
 
 const muted = { color: "#8b929a", fontSize: "13px" };
 
+// Mirrors installer.check_space: the archive and the extracted copy coexist briefly.
+const SPACE_MARGIN = 512 * 1024 * 1024;
+export const spaceNeeded = (size: number | null | undefined) => (size ? size * 2 + SPACE_MARGIN : null);
+
 export function InstallTargetModal({
   gameId,
   title,
@@ -38,7 +42,7 @@ export function InstallTargetModal({
     getInstallTargets().then((r) => (r.ok ? setTargets(r.data) : setError(r.error.message)));
   }, []);
 
-  const need = size ? size * 2 : null;
+  const need = spaceNeeded(size);
   const pick = async (t: InstallTarget) => {
     setBusy(true);
     const r = await startInstall(gameId, t.path);
@@ -115,7 +119,9 @@ export function ExePickerModal({ installDir, title, initial, onPick, closeModal 
               }}
             >
               <div>{c.path}</div>
-              <div style={muted}>{formatBytes(c.size)}</div>
+              <div style={muted}>
+                {c.kind === "linux" ? "Linux (native)" : "Windows (Proton)"} · {formatBytes(c.size)}
+              </div>
             </DialogButton>
           ))}
         </Focusable>
@@ -140,7 +146,9 @@ function confirm(props: { title: string; body: string; ok: string; cancel?: stri
 }
 
 export async function confirmUpdate(game: InstalledGame, st?: InstallStatus): Promise<void> {
-  const size = st?.server_size ? ` Downloads ${formatBytes(st.server_size)}.` : "";
+  const size = st?.server_size
+    ? ` Downloads ${formatBytes(st.server_size)} and needs about ${formatBytes(spaceNeeded(st.server_size))} free.`
+    : "";
   const ok = await confirm({
     title: `Update ${game.title}?`,
     body:

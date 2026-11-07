@@ -3,7 +3,11 @@ import { callable } from "@decky/api";
 export type ApiError = { message: string; status: number | null; code: string | null };
 export type Result<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 
-export type PublicSettings = { server_url: string; has_token: boolean; custom_install_dir: string };
+export type PublicSettings = {
+  server_url: string;
+  has_token: boolean;
+  custom_install_dir: string;
+};
 
 export type ConnectionInfo = {
   ok: boolean;
@@ -74,7 +78,16 @@ export function platformLabel(p: string): string {
 // ---- install ---------------------------------------------------------------
 
 export type InstallTarget = { id: string; label: string; path: string; free: number | null };
-export type ExeCandidate = { path: string; size: number; depth: number; name_match: boolean };
+export type ExeCandidate = {
+  path: string;
+  size: number;
+  depth: number;
+  name_match: boolean;
+  kind?: "windows" | "linux";
+};
+
+/** Windows binaries run under Proton; anything else is a native Linux launcher. */
+export const isWindowsExe = (rel: string) => /\.(exe|bat|msi)$/i.test(rel);
 export type JobPhase =
   | "queued"
   | "starting"

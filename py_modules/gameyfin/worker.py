@@ -15,7 +15,7 @@ import traceback
 
 from . import jobs
 from .client import GameyfinClient, GameyfinError
-from .exes import find_executables, is_ambiguous
+from .exes import LINUX, WINDOWS, find_executables, is_ambiguous, is_windows_exe, preferred_kind, restore_exec_bits
 from .installer import Cancelled, install
 
 
@@ -72,7 +72,8 @@ def run(job_dir: str) -> int:
         rep.update(title=game.get("title") or spec.get("title"))
         res = install(client, game, spec["dest_root"], spec["job_id"], rep.progress, cancelled,
                       provider=spec.get("provider"), install_dir=spec.get("install_dir"))
-        cands = find_executables(res.install_dir, game.get("title") or "")
+        cands = find_executables(res.install_dir, game.get("title") or "",
+                                 prefer=preferred_kind(game.get("platforms")))
         ambiguous = is_ambiguous(cands)
         # Update: keep the exe the user already chose if the new build still has it.
         keep = spec.get("exe")
@@ -80,9 +81,11 @@ def run(job_dir: str) -> int:
             # find_executables may have filtered it out (depth, exclude list), so synthesise if needed.
             first = [c for c in cands if c["path"] == keep] or [
                 {"path": keep, "size": os.path.getsize(os.path.join(res.install_dir, keep)), "depth": 0,
-                 "name_match": True}]
+                 "name_match": True, "kind": WINDOWS if is_windows_exe(keep) else LINUX}]
             cands = first + [c for c in cands if c["path"] != keep]
             ambiguous = False
+        if any(c["kind"] == LINUX for c in cands):
+            restore_exec_bits(res.install_dir)  # Gameyfin's zips drop Unix modes
         rep.update(phase="done", install_dir=res.install_dir, exe_candidates=cands[:12],
                    exe_ambiguous=ambiguous, installed_bytes=res.installed_bytes,
                    server_file_size=game.get("fileSize"),

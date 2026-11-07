@@ -83,6 +83,7 @@ export async function pickCompatTool(appId: number): Promise<string | null> {
   }
 }
 
+/** tool "" clears the compat tool (native Linux games run directly). */
 export async function setCompatTool(appId: number, tool: string): Promise<void> {
   SteamClient.Apps.SpecifyCompatTool(appId, tool);
   await sleep(200);

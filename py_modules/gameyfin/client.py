@@ -7,16 +7,40 @@ blocking; async callers should wrap them in ``asyncio.to_thread``.
 
 from __future__ import annotations
 
+import functools
 import http.client
 import json
+import os
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-USER_AGENT = "gameyfin-decky/0.2"
+USER_AGENT = "gameyfin-decky/0.3"
 DEFAULT_TIMEOUT = 15.0
+
+# Decky's bundled (PyInstaller) Python has no usable CA store, so HTTPS fails with
+# CERTIFICATE_VERIFY_FAILED. Point it at the system bundle that SteamOS ships.
+_CA_BUNDLES = (
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ca-certificates/extracted/tls-ca-bundle.pem",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+)
+
+
+@functools.lru_cache(maxsize=1)
+def ssl_context() -> ssl.SSLContext:
+    for path in _CA_BUNDLES:
+        if os.path.isfile(path):
+            return ssl.create_default_context(cafile=path)
+    return ssl.create_default_context()
+
+
+def urlopen(req, timeout: float):
+    """urllib.request.urlopen with the system CA bundle. Use for every request."""
+    return urllib.request.urlopen(req, timeout=timeout, context=ssl_context())
 
 
 class GameyfinError(Exception):
@@ -74,7 +98,7 @@ class GameyfinClient:
             headers["X-API-Key"] = self.token
         req = urllib.request.Request(self._url(path, params), headers=headers)
         try:
-            return urllib.request.urlopen(req, timeout=self.timeout)
+            return urlopen(req, timeout=self.timeout)
         except urllib.error.HTTPError as e:
             raise self._http_error(e) from None
         except urllib.error.URLError as e:

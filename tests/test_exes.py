@@ -7,7 +7,8 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "py_modules"))
 
 from gameyfin.client import GameyfinError  # noqa: E402
-from gameyfin.exes import find_executables, is_ambiguous  # noqa: E402
+from gameyfin.exes import (  # noqa: E402
+    ensure_executable, find_executables, is_ambiguous, preferred_kind, restore_exec_bits)
 from gameyfin.installed import InstalledStore, delete_game_dir  # noqa: E402
 
 
@@ -45,6 +46,69 @@ class ExeTests(unittest.TestCase):
         c = find_executables(self.d, "X")
         self.assertEqual(c[0]["path"], "sub/run.exe")
         self.assertFalse(is_ambiguous(c))
+
+
+def write(root, rel, data: bytes):
+    p = os.path.join(root, rel)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "wb") as f:
+        f.write(data)
+    return p
+
+
+class NativeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_unity_linux_build(self):
+        write(self.d, "MyGame.x86_64", b"\x7fELF" + b"\0" * 5000)
+        write(self.d, "UnityPlayer.so", b"\x7fELF" + b"\0" * 9000)
+        write(self.d, "MyGame_Data/level0", b"data")
+        c = find_executables(self.d, "My Game")
+        self.assertEqual([(x["path"], x["kind"]) for x in c], [("MyGame.x86_64", "linux")])
+        self.assertFalse(is_ambiguous(c))
+
+    def test_gog_start_sh_and_extensionless_elf(self):
+        write(self.d, "start.sh", b"#!/bin/bash\n")
+        write(self.d, "game/runner", b"\x7fELF" + b"\0" * 100)
+        write(self.d, "game/readme", b"text")
+        c = find_executables(self.d, "Something")
+        self.assertEqual(c[0]["path"], "start.sh")
+        self.assertIn("game/runner", [x["path"] for x in c])
+        self.assertNotIn("game/readme", [x["path"] for x in c])
+
+    def test_kind_preference(self):
+        write(self.d, "Game.exe", b"MZ")
+        write(self.d, "Game.x86_64", b"\x7fELF")
+        self.assertEqual(find_executables(self.d, "Game")[0]["kind"], "windows")
+        self.assertEqual(find_executables(self.d, "Game", prefer="linux")[0]["kind"], "linux")
+        # One of each kind is not ambiguous: the other kind isn't competing.
+        self.assertFalse(is_ambiguous(find_executables(self.d, "Game")))
+        self.assertEqual(preferred_kind(["LINUX"]), "linux")
+        self.assertEqual(preferred_kind(["PC_MICROSOFT_WINDOWS"]), "windows")
+        self.assertIsNone(preferred_kind(["LINUX", "PC_MICROSOFT_WINDOWS"]))
+        self.assertIsNone(preferred_kind([]))
+
+    def test_restore_exec_bits(self):
+        elf = write(self.d, "bin/game", b"\x7fELF")
+        sh = write(self.d, "start.sh", b"#!/bin/sh\n")
+        data = write(self.d, "data.pak", b"PAK")
+        for p in (elf, sh, data):
+            os.chmod(p, 0o644)
+        self.assertEqual(restore_exec_bits(self.d), 2)
+        self.assertTrue(os.access(elf, os.X_OK) and os.access(sh, os.X_OK))
+        self.assertFalse(os.access(data, os.X_OK))
+
+    def test_ensure_executable_stays_inside(self):
+        outside = write(self.d, "outside.sh", b"#!/bin/sh")
+        os.chmod(outside, 0o644)
+        os.makedirs(os.path.join(self.d, "game"))
+        ensure_executable(os.path.join(self.d, "game"), "../outside.sh")
+        self.assertFalse(os.access(outside, os.X_OK))
 
 
 class InstalledTests(unittest.TestCase):
