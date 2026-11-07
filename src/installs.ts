@@ -9,7 +9,7 @@ import {
   InstalledGame,
   JobState,
   dismissJob,
-  getGame,
+  getArtPlan,
   getInstallStatus,
   isWindowsExe,
   getInstalled,
@@ -185,15 +185,14 @@ async function addShortcut(
   return appId;
 }
 
-async function applyGameArtwork(gameId: string, appId: number) {
-  const detail = await getGame(gameId);
-  if (detail.ok) {
-    await applyArtwork(appId, {
-      cover: detail.data.cover,
-      header: detail.data.header,
-      fallbackHero: detail.data.images[0],
-    });
+export async function applyGameArtwork(gameId: string, appId: number): Promise<boolean> {
+  const plan = await getArtPlan(gameId);
+  if (!plan.ok) {
+    console.warn("[gameyfin] art plan failed", plan.error);
+    return false;
   }
+  await applyArtwork(appId, plan.data);
+  return true;
 }
 
 /** Create/update the Steam shortcut for a finished job and record the install. */

@@ -8,6 +8,8 @@ export type PublicSettings = {
   has_token: boolean;
   custom_install_dir: string;
   install_deps: boolean;
+  has_sgdb_key: boolean;
+  sgdb_square_covers: boolean;
 };
 
 export type ConnectionInfo = {
@@ -192,6 +194,16 @@ export const prefixExists = callable<[appid: number], Result<boolean>>("prefix_e
 export const getArtwork = callable<[image_url: string], Result<{ content_type: string; size: number; chunks: number }>>(
   "get_artwork",
 );
+
+// ---- SteamGridDB -------------------------------------------------------------
+
+/** One image URL per Steam artwork slot (Gameyfin API path or SteamGridDB CDN URL). */
+export type ArtPlan = { capsule: string | null; wide: string | null; hero: string | null; logo: string | null };
+export const getArtPlan = callable<[game_id: string], Result<ArtPlan>>("get_art_plan");
+export const dropArtwork = callable<[image_url: string], Result<null>>("drop_artwork");
+export const setSgdbKey = callable<[key: string], Result<PublicSettings>>("set_sgdb_key");
+export const clearSgdbKey = callable<[], Result<PublicSettings>>("clear_sgdb_key");
+export const setSgdbSquareCovers = callable<[enabled: boolean], Result<PublicSettings>>("set_sgdb_square_covers");
 
 // ---- phone pairing -----------------------------------------------------------
 

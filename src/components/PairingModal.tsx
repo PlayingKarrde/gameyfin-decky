@@ -78,8 +78,8 @@ export function PairingModal({ onPaired, closeModal }: Props) {
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "10px" }}>
           <div style={{ fontSize: "22px", fontWeight: "bold" }}>Pair with your phone</div>
           <div style={{ fontSize: "14px", color: "#b8bcbf", lineHeight: 1.4 }}>
-            Scan the code with a phone on the same network, or open this address in its browser. Create a personal
-            access token in Gameyfin and paste it on that page.
+            Scan the code with a phone on the same network, or open this address in its browser. Paste a Gameyfin
+            personal access token on that page, and optionally a SteamGridDB API key for extra artwork.
           </div>
           {short && (
             <div

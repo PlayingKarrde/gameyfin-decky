@@ -8,7 +8,7 @@ from typing import Any, Callable
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
 import decky
 
-from gameyfin import jobs, selfupdate
+from gameyfin import jobs, selfupdate, sgdb
 from gameyfin.client import GameyfinClient, GameyfinError, normalize_base_url
 from gameyfin.exes import ensure_executable, find_executables, is_windows_exe
 from gameyfin.installed import InstalledStore, delete_game_dir, delete_prefix, install_targets
@@ -37,6 +37,7 @@ class Plugin:
     store: SettingsStore
     settings: Settings
     images: ImageCache
+    sgdb_ids: sgdb.SgdbResolver
     installed: InstalledStore
     pairing: PairingSession | None = None
     jobs_root: str
@@ -96,21 +97,34 @@ class Plugin:
 
     # ---- phone pairing -----------------------------------------------------
 
-    def _pair_submit(self, server_url: str, token: str) -> str:
-        """Runs on the pairing server's thread. Validate first, then save."""
-        url = normalize_base_url(server_url)
-        info = GameyfinClient(url, token).test_connection()
-        self.settings = dataclasses.replace(self.settings, server_url=url, token=token)
+    def _pair_submit(self, server_url: str, token: str, sgdb_key: str) -> str:
+        """Runs on the pairing server's thread. Validate everything first, then save."""
+        if not token and not self.settings.token:
+            raise GameyfinError("Paste a Gameyfin token too: this Deck isn't paired yet")
+        changes: dict = {}
+        msgs = []
+        if token:
+            url = normalize_base_url(server_url)
+            info = GameyfinClient(url, token).test_connection()
+            changes.update(server_url=url, token=token)
+            who = f" as {info['username']}" if info.get("username") else ""
+            msgs.append(f"Connected to Gameyfin{who}.")
+        if sgdb_key:
+            sgdb.SgdbClient(sgdb_key).validate()
+            changes["sgdb_key"] = sgdb_key
+            msgs.append("SteamGridDB key saved.")
+        self.settings = dataclasses.replace(self.settings, **changes)
         self.store.save(self.settings)
-        log.info("Paired via phone (server=%s)", url)
-        who = f" as {info['username']}" if info.get("username") else ""
-        return f"Connected to Gameyfin{who}."
+        log.info("Paired via phone (gameyfin=%s, sgdb=%s)", bool(token), bool(sgdb_key))
+        return " ".join(msgs)
 
     async def start_pairing(self) -> dict:
         def run():
             if self.pairing:
                 self.pairing.stop()
-            self.pairing = PairingSession(self.settings.server_url, self._pair_submit).start()
+            self.pairing = PairingSession(self.settings.server_url, self._pair_submit,
+                                          has_token=bool(self.settings.token),
+                                          has_sgdb_key=bool(self.settings.sgdb_key)).start()
             log.info("Pairing server listening on %s:%s", self.pairing.ip, self.pairing.port)
             return self.pairing.status()
         return await self._call(run)
@@ -127,6 +141,59 @@ class Plugin:
         if self.pairing:
             self.pairing.stop()
         return _ok(None)
+
+    # ---- SteamGridDB -------------------------------------------------------
+
+    async def set_sgdb_key(self, key: str) -> dict:
+        """Validate against SteamGridDB, then save. The key is never sent back to the UI."""
+        def run():
+            k = (key or "").strip()
+            sgdb.SgdbClient(k).validate()
+            self.settings = dataclasses.replace(self.settings, sgdb_key=k)
+            self.store.save(self.settings)
+            log.info("SteamGridDB key saved")
+            return self.settings.public()
+        return await self._call(run)
+
+    async def clear_sgdb_key(self) -> dict:
+        self.settings = dataclasses.replace(self.settings, sgdb_key="")
+        self.store.save(self.settings)
+        return _ok(self.settings.public())
+
+    async def set_sgdb_square_covers(self, enabled: bool) -> dict:
+        self.settings = dataclasses.replace(self.settings, sgdb_square_covers=bool(enabled))
+        self.store.save(self.settings)
+        return _ok(self.settings.public())
+
+    async def get_art_plan(self, game_id: str) -> dict:
+        """{capsule, wide, hero, logo}: one image URL (or null) per Steam artwork slot.
+
+        Gameyfin's cover wins the capsule; SteamGridDB (if a key is set) supplies the
+        wide capsule, hero and logo. Any SGDB failure falls back to Gameyfin-only art.
+        """
+        def run():
+            game = self._client().get_game(game_id)
+            assets: dict = {}
+            if self.settings.sgdb_key:
+                try:
+                    assets = self.sgdb_ids.assets_for(sgdb.SgdbClient(self.settings.sgdb_key), game)
+                except GameyfinError as e:
+                    log.warning("SteamGridDB lookup for %s failed: %s", game_id, e)
+            plan = sgdb.art_plan(game, assets, square=self.settings.sgdb_square_covers)
+            log.info("Art plan for %s (%s): %s", game_id, game.get("title"),
+                     {k: ("sgdb" if v and sgdb.is_sgdb_image_url(v) else "gameyfin" if v else None)
+                      for k, v in plan.items()})
+            return plan
+        return await self._call(run)
+
+    def _fetch_for(self, url: str):
+        return sgdb.fetch_image if sgdb.is_sgdb_image_url(url) else self._client().fetch_image
+
+    async def drop_artwork(self, image_url: str) -> dict:
+        """Free a SteamGridDB original once Steam has stored it. Gameyfin images stay cached."""
+        if not sgdb.is_sgdb_image_url(image_url):
+            return _ok(None)
+        return await self._call(lambda: self.images.drop_original(image_url))
 
     # ---- library -----------------------------------------------------------
 
@@ -155,7 +222,7 @@ class Plugin:
 
     async def get_image(self, image_url: str) -> dict:
         """{thumb: dataURL} if cached, else {content_type, size, chunks} for chunked fetch."""
-        return await self._call(lambda: self.images.describe(self._client(), image_url))
+        return await self._call(lambda: self.images.describe(self._client().fetch_image, image_url))
 
     async def get_image_chunk(self, image_url: str, index: int) -> dict:
         return await self._call(lambda: self.images.chunk(image_url, index))
@@ -165,7 +232,7 @@ class Plugin:
 
     async def get_artwork(self, image_url: str) -> dict:
         """Full-size original as {content_type, size, chunks}; fetch slices with get_image_chunk."""
-        return await self._call(lambda: self.images.describe_original(self._client(), image_url))
+        return await self._call(lambda: self.images.describe_original(self._fetch_for(image_url), image_url))
 
     # ---- install -----------------------------------------------------------
 
@@ -317,6 +384,7 @@ class Plugin:
         self.store = SettingsStore(decky.DECKY_PLUGIN_SETTINGS_DIR)
         self.settings = self.store.load()
         self.images = ImageCache(decky.DECKY_PLUGIN_RUNTIME_DIR)
+        self.sgdb_ids = sgdb.SgdbResolver()
         self.installed = InstalledStore(decky.DECKY_PLUGIN_SETTINGS_DIR)
         self.jobs_root = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "jobs")
         self._install_lock = threading.Lock()

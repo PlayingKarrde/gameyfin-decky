@@ -2,12 +2,13 @@ import { ButtonItem, PanelSection, PanelSectionRow, staticClasses } from "@decky
 import { definePlugin, routerHook, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { FaServer } from "react-icons/fa";
-import { PluginUpdate, checkPluginUpdate, getSettings } from "./backend";
+import { PluginUpdate, PublicSettings, checkPluginUpdate, getSettings } from "./backend";
 import { patchContextMenu } from "./contextMenu";
 import { LIBRARY_ROUTE, LibraryPage, openLibrary } from "./components/LibraryPage";
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { InstallLocationPanel } from "./components/InstallLocationPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { ArtworkPanel } from "./components/ArtworkPanel";
 import { healthOf, startPolling, stopPolling, useInstallState } from "./installs";
 
 function LibraryButtons({ configured }: { configured: boolean }) {
@@ -94,6 +95,11 @@ async function announceUpdate() {
 
 function Content() {
   const [configured, setConfigured] = useState(false);
+  const [pushed, setPushed] = useState<PublicSettings | null>(null);
+  const onSaved = (s: PublicSettings) => {
+    setConfigured(!!s.server_url && s.has_token);
+    setPushed(s);
+  };
 
   useEffect(() => {
     getSettings().then((r) => r.ok && setConfigured(!!r.data.server_url && r.data.has_token));
@@ -104,7 +110,8 @@ function Content() {
       <PluginUpdateSection />
       <LibraryButtons configured={configured} />
       <DownloadsPanel />
-      <SettingsPanel onSaved={(s) => setConfigured(!!s.server_url && s.has_token)} />
+      <SettingsPanel onSaved={onSaved} />
+      <ArtworkPanel settings={pushed} onSaved={onSaved} />
       <InstallLocationPanel />
     </>
   );

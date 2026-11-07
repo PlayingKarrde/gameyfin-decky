@@ -9,14 +9,14 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin that 
 - **Proper Steam shortcuts**:
   - The game's executable is detected automatically. Helpers like `UnityCrashHandler` or `vc_redist` are skipped, and you're asked to pick when it's ambiguous.
   - Windows games run under Proton. Native Linux builds (`start.sh`, `.x86_64` and similar) run directly.
-  - The shortcut gets Gameyfin's cover, hero and header artwork.
+  - The shortcut gets Gameyfin's cover, hero and header artwork. With an optional [SteamGridDB](https://www.steamgriddb.com) API key it also gets a logo, a wide capsule and a hero sized for Steam. Gameyfin's cover is kept as the portrait capsule unless you turn on **Square covers**, which uses SteamGridDB's square art instead.
 - **GOG offline installers**: a folder holding `setup_*.exe` and its `.bin` parts is unpacked with a bundled [innoextract](https://constexpr.org/innoextract/), no Wine needed. DLC installers in the same folder are layered on top of the base game, and GOG's launch settings (arguments, working folder) are applied to the shortcut.
 - **Bundled dependencies**: if a Windows game ships Visual C++, DirectX, XNA or OpenAL installers (GOG's `__redist`, `_CommonRedist` and similar), they run silently in the game's Proton prefix on its first launch. You can turn this off in the plugin's **Installs** section.
 - **Updates**: the plugin notices when the server has a different build of an installed game, and updates it in place. The shortcut, Proton prefix, artwork and launch options are kept.
 - **Repair**: installs with missing files or a deleted Steam shortcut are flagged and can be re-added or reinstalled.
-- **Steam context menu**: Gameyfin games get a **Gameyfin** submenu in the library's context menu, with **Update…** and **Uninstall…**. Steam's own "Remove non-Steam game" only deletes the shortcut.
+- **Steam context menu**: Gameyfin games get a **Gameyfin** submenu in the library's context menu, with **Update…**, **Refresh artwork** and **Uninstall…**. Steam's own "Remove non-Steam game" only deletes the shortcut.
 - **Clean uninstall**: removes the shortcut and the game folder, and asks separately before deleting the Proton prefix, since that's usually where saves live.
-- **Phone pairing**: instead of typing an 87-character token on the Deck, scan a QR code, create a token in Gameyfin on your phone and paste it there.
+- **Phone pairing**: instead of typing an 87-character token on the Deck, scan a QR code, create a token in Gameyfin on your phone and paste it there. The same page takes an optional SteamGridDB API key, so you sign in to SteamGridDB in your phone's browser instead of on the Deck.
 - **Plugin updates**: the Quick Access panel tells you when a new release is out and installs it through Decky's own confirmation dialog.
 
 ## Requirements
@@ -42,6 +42,7 @@ After that, the plugin offers new versions itself (**Update to …** at the top 
 
 1. Open the Quick Access menu (`…` button) → **Gameyfin**.
 2. Under **Connection**, choose **Pair with phone** and follow the steps, or type the server URL and token yourself. **Test connection** checks them.
+   - Optional: under **SteamGridDB artwork**, choose **Add key with phone**. On your phone, open the SteamGridDB API page, sign in, copy the key and send it. Games installed earlier can pick up the new art with **Refresh artwork** in their Gameyfin context menu.
 3. Choose **Browse library**, pick a game and press **Install**.
 4. When the download finishes, the game appears in your Steam library, ready to play. If the plugin can't tell which executable is the game, the **Downloads** section asks you to choose.
 
@@ -61,9 +62,9 @@ Games install to `~/Games/Gameyfin/<Title>` (or `<SD card>/Games/Gameyfin/<Title
 
 ## Privacy and security
 
-- Apart from your Gameyfin server, the only other connection is a check of this repository's latest GitHub release, at most every few hours while Decky is running.
+- Apart from your Gameyfin server, the only other connections are a check of this repository's latest GitHub release, at most every few hours while Decky is running, and, only if you add a SteamGridDB key, artwork lookups on steamgriddb.com when a game is installed.
 
-- The token is stored only on the device, in Decky's settings folder (`settings.json`, mode `0600`), and is never sent to the Steam UI.
+- The token and the SteamGridDB key are stored only on the device, in Decky's settings folder (`settings.json`, mode `0600`), and is never sent to the Steam UI.
 - Phone pairing runs a small web page on your local network only while the pairing screen is open, at most 10 minutes. Its address contains a random one-time code, it shuts down after one successful pairing or after repeated wrong guesses, and it uses plain HTTP like a typical LAN Gameyfin install.
 
 ## Development

@@ -6,8 +6,9 @@
   scripts/gf.py game <id>
   scripts/gf.py providers
   scripts/gf.py install <id> --dest DIR [--jobs DIR] [--cancel-after SECONDS]
+  scripts/gf.py art <id>         # Steam artwork plan (SteamGridDB too, if a key is set)
 
-.env keys (CRLF tolerated): serverurl / GAMEYFIN_URL, api / GAMEYFIN_TOKEN
+.env keys (CRLF tolerated): serverurl / GAMEYFIN_URL, api / GAMEYFIN_TOKEN, optional sgdb / SGDB_KEY
 """
 
 import argparse
@@ -21,7 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "py_modules"))
 
 from gameyfin.client import GameyfinClient, GameyfinError  # noqa: E402
-from gameyfin import jobs  # noqa: E402
+from gameyfin import jobs, sgdb  # noqa: E402
 from gameyfin.library import game_detail, page_summary  # noqa: E402
 
 
@@ -40,8 +41,12 @@ def load_env(path: str) -> dict:
     return env
 
 
+def env_all() -> dict:
+    return {**load_env(os.path.join(ROOT, ".env")), **os.environ}
+
+
 def make_client() -> GameyfinClient:
-    env = {**load_env(os.path.join(ROOT, ".env")), **os.environ}
+    env = env_all()
     url = env.get("GAMEYFIN_URL") or env.get("serverurl")
     token = env.get("GAMEYFIN_TOKEN") or env.get("api")
     if not url or not token:
@@ -92,6 +97,8 @@ def main() -> None:
     g = sub.add_parser("game")
     g.add_argument("id")
     sub.add_parser("providers")
+    a = sub.add_parser("art")
+    a.add_argument("id")
     i = sub.add_parser("install")
     i.add_argument("id")
     i.add_argument("--dest", required=True)
@@ -108,6 +115,15 @@ def main() -> None:
         elif args.cmd == "install":
             jobs_root = args.jobs or os.path.join(args.dest, ".jobs")
             sys.exit(cmd_install(c, args.id, args.dest, jobs_root, args.cancel_after))
+        elif args.cmd == "art":
+            game = c.get_game(args.id)
+            env = env_all()
+            key = env.get("SGDB_KEY") or env.get("sgdb")
+            sg = sgdb.SgdbClient(key) if key else None
+            sgdb_id = sg.resolve(game) if sg else None
+            assets = sg.assets(sgdb_id) if sgdb_id else {}
+            out = {"title": game.get("title"), "sgdb_key": bool(key), "sgdb_id": sgdb_id,
+                   "plan": sgdb.art_plan(game, assets)}
         elif args.cmd == "game":
             out = game_detail(c.get_game(args.id))
         else:

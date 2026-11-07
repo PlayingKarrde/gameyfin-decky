@@ -1,4 +1,4 @@
-// Adds a "Gameyfin" submenu (Update, Uninstall) to the Steam library context menu of games
+// Adds a "Gameyfin" submenu (Update, Refresh artwork, Uninstall) to the Steam library context menu of games
 // the plugin installed. Steam's own "Remove non-Steam game" only deletes the shortcut.
 // One submenu rather than loose items keeps Steam's menu from growing with every feature.
 //
@@ -16,8 +16,9 @@ import {
   findInTree,
   findModuleByExport,
 } from "@decky/ui";
+import { toaster } from "@decky/api";
 import { FC, ReactElement } from "react";
-import { getSnapshot, healthOf, statusFor } from "./installs";
+import { applyGameArtwork, getSnapshot, healthOf, statusFor } from "./installs";
 import { confirmUninstall, confirmUpdate } from "./components/InstallModals";
 
 const KEY_PREFIX = "gameyfin-";
@@ -50,6 +51,21 @@ function itemsFor(appid: number): ReactElement[] {
       </MenuItem>,
     );
   }
+  items.push(
+    <MenuItem
+      key="artwork"
+      onSelected={() =>
+        void applyGameArtwork(inst.game_id, appid).then((ok) =>
+          toaster.toast({
+            title: "Gameyfin",
+            body: ok ? `Artwork refreshed for ${inst.title}` : `Couldn't load artwork for ${inst.title}`,
+          }),
+        )
+      }
+    >
+      Refresh artwork
+    </MenuItem>,
+  );
   items.push(
     <MenuItem key="uninstall" onSelected={() => void confirmUninstall(inst)}>
       Uninstall…

@@ -16,8 +16,12 @@ import base64
 import os
 import re
 import threading
+from typing import Callable
 
-from .client import GameyfinClient, GameyfinError
+from .client import GameyfinError, Image
+
+# url -> Image. Gameyfin images need the API key; SteamGridDB CDN images are public.
+Fetch = Callable[[str], Image]
 
 # Multiple of 3 so per-chunk base64 strings concatenate into valid base64.
 CHUNK_BYTES = 384 * 1024
@@ -57,11 +61,11 @@ class ImageCache:
             f.write(data)
         os.replace(tmp, path)
 
-    def _ensure_orig(self, client: GameyfinClient, url: str) -> tuple[str, str]:
+    def _ensure_orig(self, fetch: Fetch, url: str) -> tuple[str, str]:
         hit = self._find_orig(url)
         if hit:
             return hit
-        img = client.fetch_image(url)
+        img = fetch(url)
         ext = _EXT.get(img.content_type)
         if not ext:
             raise GameyfinError(f"Unsupported image type {img.content_type}", code="bad_image")
@@ -69,18 +73,18 @@ class ImageCache:
         self._write_atomic(path, img.data)
         return path, img.content_type
 
-    def describe(self, client: GameyfinClient, url: str) -> dict:
+    def describe(self, fetch: Fetch, url: str) -> dict:
         tp = self._thumb_path(url)
         if os.path.exists(tp):
             with open(tp, "rb") as f:
                 return {"thumb": _THUMB_PREFIX + base64.b64encode(f.read()).decode("ascii")}
-        path, ctype = self._ensure_orig(client, url)
+        path, ctype = self._ensure_orig(fetch, url)
         size = os.path.getsize(path)
         return {"content_type": ctype, "size": size, "chunks": max(1, -(-size // CHUNK_BYTES))}
 
-    def describe_original(self, client: GameyfinClient, url: str) -> dict:
+    def describe_original(self, fetch: Fetch, url: str) -> dict:
         """Full-size image (for Steam artwork), never the thumbnail."""
-        path, ctype = self._ensure_orig(client, url)
+        path, ctype = self._ensure_orig(fetch, url)
         size = os.path.getsize(path)
         return {"content_type": ctype, "size": size, "chunks": max(1, -(-size // CHUNK_BYTES))}
 
@@ -103,3 +107,12 @@ class ImageCache:
         hit = self._find_orig(url)
         if hit:
             os.remove(hit[0])
+
+    def drop_original(self, url: str) -> None:
+        """Forget a full-size original once Steam has it (SGDB heroes are several MB each)."""
+        hit = self._find_orig(url)
+        if hit:
+            try:
+                os.remove(hit[0])
+            except FileNotFoundError:
+                pass

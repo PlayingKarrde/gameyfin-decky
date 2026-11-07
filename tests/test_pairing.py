@@ -25,10 +25,10 @@ class PairingTests(unittest.TestCase):
     def setUp(self):
         self.got = []
 
-        def submit(url, token):
+        def submit(url, token, sgdb_key):
             if token == "bad":
                 raise ValueError("API token was rejected")
-            self.got.append((url, token))
+            self.got.append((url, token, sgdb_key))
             return "Connected."
 
         self.s = pairing.PairingSession("http://gf.local:8080", submit).start()
@@ -45,7 +45,7 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(self.s.state, "waiting")
         code, body = req(f"{self.base}/{self.s.code}", {"server_url": "http://gf.local:8080", "token": "gf_pat_x"})
         self.assertTrue(json.loads(body)["ok"])
-        self.assertEqual(self.got, [("http://gf.local:8080", "gf_pat_x")])
+        self.assertEqual(self.got, [("http://gf.local:8080", "gf_pat_x", "")])
         self.assertEqual(self.s.status()["state"], "done")
         time.sleep(0.2)
         with self.assertRaises(OSError):  # server is gone
@@ -55,6 +55,21 @@ class PairingTests(unittest.TestCase):
         for _ in range(pairing.MAX_BAD_REQUESTS):
             req(f"{self.base}/AAAAAA")
         self.assertEqual(self.s.state, "locked")
+
+    def test_sgdb_key_only(self):
+        code, body = req(f"{self.base}/{self.s.code}", {"server_url": "", "token": "", "sgdb_key": "abc"})
+        self.assertTrue(json.loads(body)["ok"])
+        self.assertEqual(self.got, [("", "", "abc")])
+
+    def test_needs_something(self):
+        code, body = req(f"{self.base}/{self.s.code}", {"server_url": "http://gf.local:8080", "token": ""})
+        self.assertEqual(code, 400)
+        self.assertEqual(self.s.state, "waiting")
+
+    def test_page_mentions_saved_values(self):
+        self.assertIn("already has a token", pairing._page("", has_token=True))
+        self.assertIn("already saved", pairing._page("", has_sgdb_key=True))
+        self.assertIn("steamgriddb.com/profile/preferences/api", pairing._page(""))
 
     def test_html_escapes_server_url(self):
         self.assertNotIn("<script>alert", pairing._page('"><script>alert(1)</script>'))

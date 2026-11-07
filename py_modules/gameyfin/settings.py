@@ -1,4 +1,4 @@
-"""Plugin settings persisted as JSON. The token never leaves the backend."""
+"""Plugin settings persisted as JSON. The token and SteamGridDB key never leave the backend."""
 
 from __future__ import annotations
 
@@ -14,11 +14,16 @@ class Settings:
     custom_install_dir: str = ""
     # Run bundled VC++/DirectX/... installers in the prefix on a game's first launch.
     install_deps: bool = True
+    # The user's own SteamGridDB API key (optional): adds logos, heroes and wide capsules.
+    sgdb_key: str = ""
+    # Use SteamGridDB's square grids for the library capsule instead of the poster.
+    sgdb_square_covers: bool = False
 
     def public(self) -> dict:
         """Safe view for the frontend: no token, just whether one is set."""
         return {"server_url": self.server_url, "has_token": bool(self.token),
-                "custom_install_dir": self.custom_install_dir, "install_deps": self.install_deps}
+                "custom_install_dir": self.custom_install_dir, "install_deps": self.install_deps,
+                "has_sgdb_key": bool(self.sgdb_key), "sgdb_square_covers": self.sgdb_square_covers}
 
 
 class SettingsStore:
@@ -42,7 +47,7 @@ class SettingsStore:
     def save(self, settings: Settings) -> None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         tmp = self.path + ".tmp"
-        # 0600: contains the API token.
+        # 0600: contains the API token and SteamGridDB key.
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(asdict(settings), f, indent=2)
