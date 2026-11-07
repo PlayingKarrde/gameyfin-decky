@@ -8,6 +8,7 @@ const PHASE_TEXT: Record<string, string> = {
   starting: "Starting",
   downloading: "Downloading",
   extracting: "Extracting",
+  installing: "Running installer",
   finalizing: "Finishing",
   done: "Adding to Steam",
   error: "Failed",

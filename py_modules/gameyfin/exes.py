@@ -4,6 +4,7 @@ Proton) or a native Linux binary/launcher script (run directly)."""
 from __future__ import annotations
 
 import fnmatch
+import json
 import os
 import re
 import stat
@@ -16,12 +17,12 @@ EXCLUDE = (
     "vc_redist*", "vcredist*", "dxsetup*", "dxwebsetup*", "directx*", "dotnet*", "ndp*", "oalinst*",
     "physx*", "*uninst*", "unins*", "*setup*", "*install*", "*redist*", "ue4prereq*", "ueprereq*",
     "*launcherhelper*", "easyanticheat*", "start_protected_game*", "*eac*setup*", "notification_helper*",
-    "dowser*", "cefsharp*", "*subprocess*", "*webhelper*", "zfgamebrowser*", "quicksfv*",
+    "dowser*", "cefsharp*", "*subprocess*", "*webhelper*", "zfgamebrowser*", "quicksfv*", "scriptinterpreter*",
     # Linux helpers
     "chrome-sandbox", "chrome_crashpad_handler", "xdg-*", "*.so", "*.so.*", "ldd*", "steam_appid*",
 )
 SKIP_DIRS = {"_commonredist", "redist", "redistributables", "directx", "vcredist", "__installer",
-             "_redist", "support", "prereqs", "prerequisites", "engine"}
+             "_redist", "__redist", "__support", "support", "prereqs", "prerequisites", "engine"}
 
 # Extensions that mark a Linux launcher; extensionless files count if they are ELF.
 LINUX_EXTS = (".x86_64", ".x86", ".sh", ".appimage")
@@ -112,6 +113,30 @@ def preferred_kind(platforms: list[str] | None) -> str | None:
         return LINUX
     if "PC_MICROSOFT_WINDOWS" in p and "LINUX" not in p:
         return WINDOWS
+    return None
+
+
+def gog_play_task(install_dir: str) -> dict | None:
+    """GOG's goggame-<id>.info names the primary launch target, with arguments and
+    working dir (DOSBox/ScummVM titles need them). {path, args, work_dir} or None."""
+    try:
+        infos = [n for n in os.listdir(install_dir) if n.startswith("goggame-") and n.endswith(".info")]
+    except OSError:
+        return None
+    for name in sorted(infos):
+        try:
+            with open(os.path.join(install_dir, name), encoding="utf-8-sig") as f:
+                tasks = json.load(f).get("playTasks") or []
+        except (OSError, ValueError, AttributeError):
+            continue
+        for t in tasks:
+            if t.get("isPrimary") and t.get("type") == "FileTask" and t.get("path"):
+                rel = t["path"].replace("\\", "/").lstrip("/")
+                full = os.path.realpath(os.path.join(install_dir, rel))
+                if not full.startswith(os.path.realpath(install_dir) + os.sep) or not os.path.isfile(full):
+                    continue
+                work = (t.get("workingDir") or "").replace("\\", "/").strip("/")
+                return {"path": rel, "args": t.get("arguments") or "", "work_dir": work}
     return None
 
 

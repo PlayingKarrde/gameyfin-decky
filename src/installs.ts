@@ -152,8 +152,11 @@ async function addShortcut(
   extra: Partial<InstalledGame> = {},
 ): Promise<number> {
   const exe = `${installDir}/${rel}`;
-  const startDir = exe.slice(0, exe.lastIndexOf("/"));
-  const appId = await upsertShortcut({ name: title, exe, startDir }, prevAppId);
+  const startDir = extra.work_dir ? `${installDir}/${extra.work_dir}` : exe.slice(0, exe.lastIndexOf("/"));
+  const appId = await upsertShortcut(
+    { name: title, exe, startDir, launchOptions: extra.launch_args ?? undefined },
+    prevAppId,
+  );
   let tool: string | null = null;
   if (isWindowsExe(rel)) {
     tool = await pickCompatTool(appId);
@@ -195,8 +198,14 @@ export async function finishInstall(job: JobState, exeRel?: string, manual = fal
     size: job.installed_bytes ?? null,
     server_file_size: job.server_file_size ?? null,
   };
+  // GOG's launch arguments / working dir belong to its primary exe only.
+  const primary = job.exe_candidates?.[0]?.path;
   try {
-    const rel = exeRel ?? job.exe_candidates?.[0]?.path ?? null;
+    const rel = exeRel ?? primary ?? null;
+    if (rel && rel === primary && (job.launch_args || job.work_dir)) {
+      extra.launch_args = job.launch_args || null;
+      extra.work_dir = job.work_dir || null;
+    }
     const prev = snapshot.installed.find((g) => g.game_id === String(job.game_id));
     if (!rel) {
       await registerInstalled(job.game_id, {
@@ -227,7 +236,8 @@ export const finishFailed = (jobId: string) => failed.has(jobId);
 export async function readdToSteam(inst: InstalledGame, exeRel?: string): Promise<void> {
   const rel = exeRel ?? inst.exe;
   if (!rel) throw new Error("No executable chosen");
-  const appId = await addShortcut(inst.game_id, inst.title, inst.install_dir, rel, inst.appid);
+  const keepLaunch = rel === inst.exe ? { launch_args: inst.launch_args, work_dir: inst.work_dir } : {};
+  const appId = await addShortcut(inst.game_id, inst.title, inst.install_dir, rel, inst.appid, keepLaunch);
   toaster.toast({ title: "Gameyfin", body: `${inst.title} is back in your library` });
   void refresh();
   await applyGameArtwork(inst.game_id, appId);

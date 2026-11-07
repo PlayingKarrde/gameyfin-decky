@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "py_modules"))
 
 from gameyfin.client import GameyfinError  # noqa: E402
 from gameyfin.exes import (  # noqa: E402
-    ensure_executable, find_executables, is_ambiguous, preferred_kind, restore_exec_bits)
+    ensure_executable, find_executables, gog_play_task, is_ambiguous, preferred_kind, restore_exec_bits)
 from gameyfin.installed import InstalledStore, delete_game_dir  # noqa: E402
 
 
@@ -109,6 +109,30 @@ class NativeTests(unittest.TestCase):
         os.makedirs(os.path.join(self.d, "game"))
         ensure_executable(os.path.join(self.d, "game"), "../outside.sh")
         self.assertFalse(os.access(outside, os.X_OK))
+
+
+class GogTests(unittest.TestCase):
+    def test_play_task(self):
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "DOSBOX/dosbox.exe", b"MZ")
+            info = {"playTasks": [
+                {"type": "FileTask", "path": "readme.txt", "isPrimary": False},
+                {"type": "FileTask", "isPrimary": True, "path": "DOSBOX\\dosbox.exe",
+                 "arguments": "-conf \"..\\game.conf\" -c exit", "workingDir": "DOSBOX"},
+            ]}
+            write(d, "goggame-123.info", json.dumps(info).encode())
+            t = gog_play_task(d)
+            self.assertEqual(t["path"], "DOSBOX/dosbox.exe")
+            self.assertEqual(t["work_dir"], "DOSBOX")
+            self.assertIn("-conf", t["args"])
+
+    def test_play_task_must_stay_inside(self):
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "game/x", b"")
+            info = {"playTasks": [{"type": "FileTask", "isPrimary": True, "path": "../../etc/passwd"}]}
+            write(d, "game/goggame-1.info", json.dumps(info).encode())
+            self.assertIsNone(gog_play_task(os.path.join(d, "game")))
+            self.assertIsNone(gog_play_task(os.path.join(d, "missing")))
 
 
 class InstalledTests(unittest.TestCase):

@@ -18,7 +18,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-USER_AGENT = "gameyfin-decky/0.3"
+USER_AGENT = "gameyfin-decky/0.4"
 DEFAULT_TIMEOUT = 15.0
 
 # Decky's bundled (PyInstaller) Python has no usable CA store, so HTTPS fails with

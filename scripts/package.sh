@@ -15,6 +15,20 @@ rm -rf "$STAGE" && mkdir -p "$STAGE/dist"
 cp plugin.json package.json main.py LICENSE README.md "$STAGE/"
 cp dist/index.js "$STAGE/dist/"
 cp -r py_modules "$STAGE/"
+
+# Bundled innoextract (zlib licence) for GOG-style installers. Pinned by checksum.
+INNO_VER="1.9"
+INNO_SHA256="008efe5011476ccc4aae17c3e22038b5a1bc5c7aad2b9d4d869537bf3874d21f"
+INNO_TAR="vendor/innoextract-$INNO_VER-linux.tar.xz"
+mkdir -p vendor
+if ! echo "$INNO_SHA256  $INNO_TAR" | sha256sum -c --status - 2>/dev/null; then
+  curl -sfL -o "$INNO_TAR" "https://github.com/dscharrer/innoextract/releases/download/$INNO_VER/innoextract-$INNO_VER-linux.tar.xz"
+  echo "$INNO_SHA256  $INNO_TAR" | sha256sum -c --quiet -
+fi
+mkdir -p "$STAGE/bin" "$STAGE/licenses"
+tar -xJf "$INNO_TAR" -O "innoextract-$INNO_VER-linux/bin/amd64/innoextract" > "$STAGE/bin/innoextract"
+tar -xJf "$INNO_TAR" -O "innoextract-$INNO_VER-linux/license/innoextract.LICENSE" > "$STAGE/licenses/innoextract.LICENSE"
+chmod 755 "$STAGE/bin/innoextract"
 find "$STAGE" -name '__pycache__' -prune -exec rm -rf {} +
 
 ZIP="out/$NAME-$VERSION.zip"

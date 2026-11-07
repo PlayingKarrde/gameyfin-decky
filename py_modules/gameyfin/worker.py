@@ -15,8 +15,10 @@ import traceback
 
 from . import jobs
 from .client import GameyfinClient, GameyfinError
-from .exes import LINUX, WINDOWS, find_executables, is_ambiguous, is_windows_exe, preferred_kind, restore_exec_bits
+from .exes import (LINUX, WINDOWS, find_executables, gog_play_task, is_ambiguous, is_windows_exe, preferred_kind,
+                   restore_exec_bits)
 from .installer import Cancelled, install
+from .installers import InstallerError, find_installer, install_from_installer
 
 
 class Reporter:
@@ -72,11 +74,22 @@ def run(job_dir: str) -> int:
         rep.update(title=game.get("title") or spec.get("title"))
         res = install(client, game, spec["dest_root"], spec["job_id"], rep.progress, cancelled,
                       provider=spec.get("provider"), install_dir=spec.get("install_dir"))
+        installed_bytes = res.installed_bytes
+        setup = find_installer(res.install_dir)
+        if setup and spec.get("innoextract") and os.path.isfile(spec["innoextract"]):
+            # GOG-style installer: unpack it into a normal game folder.
+            try:
+                installed_bytes = install_from_installer(spec["innoextract"], res.install_dir, setup,
+                                                         rep.progress, cancelled)
+            except InstallerError as e:
+                raise GameyfinError(f"Couldn't unpack the installer: {e}", code="installer_failed") from None
         cands = find_executables(res.install_dir, game.get("title") or "",
                                  prefer=preferred_kind(game.get("platforms")))
         ambiguous = is_ambiguous(cands)
+        # GOG builds say exactly what to launch; trust that over our ranking.
+        task = gog_play_task(res.install_dir)
         # Update: keep the exe the user already chose if the new build still has it.
-        keep = spec.get("exe")
+        keep = spec.get("exe") or (task and task["path"])
         if keep and os.path.isfile(os.path.join(res.install_dir, keep)):
             # find_executables may have filtered it out (depth, exclude list), so synthesise if needed.
             first = [c for c in cands if c["path"] == keep] or [
@@ -84,12 +97,15 @@ def run(job_dir: str) -> int:
                  "name_match": True, "kind": WINDOWS if is_windows_exe(keep) else LINUX}]
             cands = first + [c for c in cands if c["path"] != keep]
             ambiguous = False
+        launch = {}
+        if task and cands and cands[0]["path"] == task["path"]:  # its args only fit its own exe
+            launch = {"launch_args": task["args"], "work_dir": task["work_dir"]}
         if any(c["kind"] == LINUX for c in cands):
             restore_exec_bits(res.install_dir)  # Gameyfin's zips drop Unix modes
-        rep.update(phase="done", install_dir=res.install_dir, exe_candidates=cands[:12],
-                   exe_ambiguous=ambiguous, installed_bytes=res.installed_bytes,
+        rep.update(phase="done", install_dir=res.install_dir, exe_candidates=cands[:12], **launch,
+                   exe_ambiguous=ambiguous, installed_bytes=installed_bytes,
                    server_file_size=game.get("fileSize"),
-                   done=res.installed_bytes, total=res.installed_bytes, speed=0, finished_at=time.time())
+                   done=installed_bytes, total=installed_bytes, speed=0, finished_at=time.time())
         return 0
     except Cancelled:
         rep.update(phase="cancelled", speed=0, finished_at=time.time())

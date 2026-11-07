@@ -203,7 +203,9 @@ class Plugin:
             job_dir = jobs.create_job(self.jobs_root, {
                 "game_id": str(game_id), "title": game.get("title"), "dest_root": dest_root,
                 "server_url": self.settings.server_url, "file_size": game.get("fileSize"),
-                "settings_path": self.store.path, **(extra or {}),
+                "settings_path": self.store.path,
+                "innoextract": os.path.join(decky.DECKY_PLUGIN_DIR, "bin", "innoextract"),
+                **(extra or {}),
             })
         how = jobs.launch_worker(job_dir, os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules"))
         log.info("%s %s (%s) -> %s via %s", (extra or {}).get("kind", "install").capitalize(), game_id,
@@ -269,7 +271,8 @@ class Plugin:
 
     async def register_installed(self, game_id: str, record: dict) -> dict:
         """Merge into the record (only keys present are changed). Called after the shortcut exists."""
-        keep = ("title", "install_dir", "exe", "appid", "size", "compat_tool", "server_file_size")
+        keep = ("title", "install_dir", "exe", "appid", "size", "compat_tool", "server_file_size", "launch_args",
+                "work_dir")
 
         def run():
             rec = self.installed.put(game_id, {k: record[k] for k in keep if k in record})

@@ -93,6 +93,7 @@ export type JobPhase =
   | "starting"
   | "downloading"
   | "extracting"
+  | "installing"
   | "finalizing"
   | "done"
   | "error"
@@ -112,6 +113,8 @@ export type JobState = {
   exe_ambiguous?: boolean;
   kind?: "install" | "update";
   server_file_size?: number | null;
+  launch_args?: string;
+  work_dir?: string;
 };
 export type InstalledGame = {
   game_id: string;
@@ -122,6 +125,8 @@ export type InstalledGame = {
   size: number | null;
   compat_tool?: string | null;
   server_file_size?: number | null;
+  launch_args?: string | null;
+  work_dir?: string | null;
   installed_at: number;
 };
 
@@ -136,7 +141,14 @@ export type InstallStatus = {
   error: string | null;
 };
 
-export const ACTIVE_PHASES: JobPhase[] = ["queued", "starting", "downloading", "extracting", "finalizing"];
+export const ACTIVE_PHASES: JobPhase[] = [
+  "queued",
+  "starting",
+  "downloading",
+  "extracting",
+  "installing",
+  "finalizing",
+];
 
 export const getInstallTargets = callable<[], Result<InstallTarget[]>>("get_install_targets");
 export const setCustomInstallDir = callable<[path: string], Result<PublicSettings>>("set_custom_install_dir");
