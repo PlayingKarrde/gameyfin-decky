@@ -94,6 +94,51 @@ function PluginUpdateSection() {
   );
 }
 
+/** Settings: ask GitHub now instead of waiting for the 6-hour cache. */
+function UpdateCheckPanel() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ update?: PluginUpdate; error?: string } | null>(null);
+  const update = result?.update;
+
+  const onCheck = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await checkPluginUpdate(true);
+      setResult(r.ok ? { update: r.data } : { error: r.error.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const description = busy
+    ? "Checking…"
+    : result?.error
+      ? `Couldn't check: ${result.error}`
+      : update
+        ? update.newer
+          ? `${update.latest} is available (you have ${update.current}).`
+          : `You're on the latest version (${update.current}).`
+        : undefined;
+
+  return (
+    <PanelSection title="Plugin">
+      <PanelSectionRow>
+        <ButtonItem layout="below" disabled={busy} description={description} onClick={onCheck}>
+          Check for updates
+        </ButtonItem>
+      </PanelSectionRow>
+      {update?.newer && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => installUpdate(update)}>
+            Update to {update.latest}
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
+    </PanelSection>
+  );
+}
+
 /** Mention a new release once per version, shortly after Steam starts. */
 async function announceUpdate() {
   const r = await checkPluginUpdate(false);
@@ -139,6 +184,7 @@ function Content() {
           onSaved={onSaved}
           phone={(done) => showModal(<PairingModal onPaired={done} />)}
         />
+        <UpdateCheckPanel />
       </>
     );
   }
