@@ -17,7 +17,7 @@ import {
   registerInstalled,
   updateGame,
 } from "./backend";
-import { applyArtwork, pickCompatTool, setCompatTool, shortcutExists, upsertShortcut } from "./steam";
+import { applyArtwork, compatToolSet, pickCompatTool, setCompatTool, shortcutExists, upsertShortcut } from "./steam";
 
 type Snapshot = { jobs: JobState[]; installed: InstalledGame[]; status: InstallStatus[] };
 
@@ -79,6 +79,7 @@ async function tick() {
   timer = null;
   try {
     await refresh();
+    if (!compatRepairDone && snapshot.installed.length) void repairCompatShortcuts(snapshot.installed);
     if (Date.now() - lastStatusAt > STATUS_EVERY_MS) void refreshStatus();
   } catch (e) {
     console.warn("[gameyfin] poll failed", e);
@@ -152,7 +153,8 @@ function launchOptionsFor(installDir: string, extra: Partial<InstalledGame>, pre
   return prev?.deps_wrapper ? "" : undefined;
 }
 
-/** Create or update the shortcut (+ compat tool) and record it. Returns the appid. */
+/** Create or update the shortcut (+ compat tool) and record it. Returns the appid, and whether
+ *  the shortcut is new (created or recreated: artwork needs applying). */
 async function addShortcut(
   gameId: string,
   title: string,
@@ -160,18 +162,19 @@ async function addShortcut(
   rel: string,
   prevAppId: number | null | undefined,
   extra: Partial<InstalledGame> = {},
-): Promise<number> {
+): Promise<{ appId: number; created: boolean }> {
   const exe = `${installDir}/${rel}`;
   const startDir = extra.work_dir ? `${installDir}/${extra.work_dir}` : exe.slice(0, exe.lastIndexOf("/"));
   const prev = snapshot.installed.find((g) => g.game_id === String(gameId));
   const launchOptions = launchOptionsFor(installDir, extra, prev);
-  const appId = await upsertShortcut({ name: title, exe, startDir, launchOptions }, prevAppId);
+  const windows = isWindowsExe(rel);
+  // Native games get no tool at all: a new shortcut has none, and upsertShortcut recreates an old
+  // one that has one (SpecifyCompatTool(id, "") now selects Proton instead of clearing it).
+  const { appId, created } = await upsertShortcut({ name: title, exe, startDir, launchOptions }, prevAppId, !windows);
   let tool: string | null = null;
-  if (isWindowsExe(rel)) {
+  if (windows) {
     tool = await pickCompatTool(appId);
-    if (tool) await setCompatTool(appId, tool);
-  } else {
-    await setCompatTool(appId, ""); // native: clear Proton (e.g. a reinstall that switched builds)
+    await setCompatTool(appId, tool);
   }
   const saved = await registerInstalled(gameId, {
     ...extra,
@@ -182,7 +185,7 @@ async function addShortcut(
     compat_tool: tool,
   });
   if (!saved.ok) throw new Error(saved.error.message);
-  return appId;
+  return { appId, created };
 }
 
 export async function applyGameArtwork(gameId: string, appId: number): Promise<boolean> {
@@ -225,14 +228,13 @@ export async function finishInstall(job: JobState, exeRel?: string, manual = fal
       await dismissJob(job.job_id);
       return;
     }
-    const hadShortcut = !!prev?.appid && shortcutExists(prev.appid);
-    const appId = await addShortcut(job.game_id, title, job.install_dir, rel, prev?.appid, extra);
+    const { appId, created } = await addShortcut(job.game_id, title, job.install_dir, rel, prev?.appid, extra);
     await dismissJob(job.job_id);
     const deps = job.deps?.length ? ` The first launch also installs ${job.deps.join(", ")}, so it takes longer.` : "";
     toaster.toast({ title: "Gameyfin", body: (isUpdate ? `${title} updated.` : `${title} is ready to play.`) + deps });
     for (const w of job.warnings ?? []) toaster.toast({ title: `Gameyfin: ${title}`, body: w });
     // An update keeps the existing shortcut and its artwork (which the user may have customised).
-    if (!(isUpdate && hadShortcut)) await applyGameArtwork(job.game_id, appId);
+    if (!isUpdate || created) await applyGameArtwork(job.game_id, appId);
   } catch (e) {
     console.error("[gameyfin] finishing install failed", e);
     toaster.toast({ title: "Gameyfin", body: `Couldn't add ${title} to Steam: ${(e as Error).message}` });
@@ -244,19 +246,58 @@ export async function finishInstall(job: JobState, exeRel?: string, manual = fal
 
 export const finishFailed = (jobId: string) => failed.has(jobId);
 
-/** Recreate a shortcut the user removed in Steam, for an install whose files are intact. */
-export async function readdToSteam(inst: InstalledGame, exeRel?: string): Promise<void> {
-  const rel = exeRel ?? inst.exe;
-  if (!rel) throw new Error("No executable chosen");
-  const keepLaunch: Partial<InstalledGame> = {
+/** Launch settings to carry over when re-linking an existing install. */
+function keptLaunch(inst: InstalledGame, rel: string): Partial<InstalledGame> {
+  return {
     deps_wrapper: inst.deps_wrapper ?? null,
     deps: inst.deps ?? null,
     ...(rel === inst.exe ? { launch_args: inst.launch_args, work_dir: inst.work_dir } : {}),
   };
-  const appId = await addShortcut(inst.game_id, inst.title, inst.install_dir, rel, inst.appid, keepLaunch);
+}
+
+/** Recreate a shortcut the user removed in Steam, for an install whose files are intact. */
+export async function readdToSteam(inst: InstalledGame, exeRel?: string): Promise<void> {
+  const rel = exeRel ?? inst.exe;
+  if (!rel) throw new Error("No executable chosen");
+  const { appId } = await addShortcut(inst.game_id, inst.title, inst.install_dir, rel, inst.appid, keptLaunch(inst, rel));
   toaster.toast({ title: "Gameyfin", body: `${inst.title} is back in your library` });
   void refresh();
   await applyGameArtwork(inst.game_id, appId);
+}
+
+/**
+ * Recreate native shortcuts that Steam would run through Proton. Steam's November 2026 client made
+ * our old "clear the tool" call (SpecifyCompatTool(id, "")) select Proton instead, so native games
+ * added by 0.6.4 or earlier on that client start Proton or fail with "compatibility tool failed".
+ * Windows games are meant to have a tool and are skipped. Runs once per load.
+ */
+let compatRepairDone = false;
+async function repairCompatShortcuts(installed: InstalledGame[]): Promise<void> {
+  if (compatRepairDone) return;
+  compatRepairDone = true;
+  let fixed = 0;
+  for (const inst of installed) {
+    if (!inst.exe || isWindowsExe(inst.exe) || !inst.appid || !shortcutExists(inst.appid)) continue;
+    try {
+      if (!(await compatToolSet(inst.appid))) continue;
+      const { appId, created } = await addShortcut(
+        inst.game_id, inst.title, inst.install_dir, inst.exe, inst.appid, keptLaunch(inst, inst.exe),
+      );
+      if (created) {
+        fixed++;
+        await applyGameArtwork(inst.game_id, appId);
+      }
+    } catch (e) {
+      console.warn("[gameyfin] compat repair failed for", inst.game_id, e);
+    }
+  }
+  if (fixed) {
+    toaster.toast({
+      title: "Gameyfin",
+      body: `Fixed ${fixed} Linux game${fixed === 1 ? "" : "s"} that Steam had set to launch through Proton`,
+    });
+    void refresh();
+  }
 }
 
 export async function startUpdate(inst: InstalledGame): Promise<boolean> {
