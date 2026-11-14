@@ -113,7 +113,11 @@ def pick_provider(client: GameyfinClient) -> str:
     return (direct or providers)[0]["id"]
 
 
-def _stream_to_file(resp, path: str, total: int | None, progress: Progress, cancelled: CancelCheck) -> int:
+def _stream_to_file(resp, path: str, total: int | None, progress: Progress, cancelled: CancelCheck,
+                    estimate: int | None = None) -> int:
+    """``total`` is the real Content-Length and is enforced; ``estimate`` (Gameyfin's
+    fileSize, used when the on-the-fly zip has no length) only drives the progress bar."""
+    shown = total if total is not None else estimate
     done = 0
     last = 0.0
     with open(path, "wb") as out:
@@ -130,9 +134,9 @@ def _stream_to_file(resp, path: str, total: int | None, progress: Progress, canc
             done += len(buf)
             now = time.monotonic()
             if now - last >= 0.25:
-                progress("downloading", done, total)
+                progress("downloading", done, max(shown, done) if shown else None)
                 last = now
-    progress("downloading", done, total)
+    progress("downloading", done, max(shown, done) if shown else None)
     if total is not None and done != total:
         raise GameyfinError(f"Download incomplete ({done} of {total} bytes); connection dropped", code="truncated")
     return done
@@ -145,8 +149,11 @@ def download(
     part_path: str,
     progress: Progress,
     cancelled: CancelCheck,
+    estimate: int | None = None,
 ) -> tuple[int, str | None]:
-    """Download to part_path. Returns (bytes, filename from Content-Disposition)."""
+    """Download to part_path. Returns (bytes, filename from Content-Disposition).
+
+    ``estimate`` is the expected size for progress when the response has no Content-Length."""
     resp = client.open_download(game_id, provider)
     try:
         ctype = resp.headers.get_content_type()
@@ -167,7 +174,7 @@ def download(
         length = resp.headers.get("Content-Length")
         total = int(length) if length and length.isdigit() else None
         name = _filename_from_disposition(resp.headers.get("Content-Disposition"))
-        return _stream_to_file(resp, part_path, total, progress, cancelled), name
+        return _stream_to_file(resp, part_path, total, progress, cancelled, estimate), name
     finally:
         resp.close()
 
@@ -276,7 +283,7 @@ def install(
     try:
         progress("downloading", 0, game.get("fileSize"))
         provider = provider or pick_provider(client)
-        archive_bytes, filename = download(client, game_id, provider, part, progress, cancelled)
+        archive_bytes, filename = download(client, game_id, provider, part, progress, cancelled, game.get("fileSize"))
 
         _rmtree(staging)
         if zipfile.is_zipfile(part):

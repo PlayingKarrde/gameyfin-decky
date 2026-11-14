@@ -1,7 +1,16 @@
-import { ButtonItem, PanelSection, PanelSectionRow, showModal, staticClasses } from "@decky/ui";
+import {
+  ButtonItem,
+  DialogButton,
+  Focusable,
+  PanelSection,
+  PanelSectionRow,
+  SteamSpinner,
+  showModal,
+  staticClasses,
+} from "@decky/ui";
 import { definePlugin, routerHook, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
-import { FaServer } from "react-icons/fa";
+import { FaCog, FaServer, FaTimes } from "react-icons/fa";
 import { PluginUpdate, PublicSettings, checkPluginUpdate, getSettings } from "./backend";
 import { patchContextMenu } from "./contextMenu";
 import { LIBRARY_ROUTE, LibraryPage, openLibrary } from "./components/LibraryPage";
@@ -11,6 +20,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { ArtworkPanel } from "./common/ArtworkPanel";
 import { PairingModal } from "./components/PairingModal";
 import { healthOf, startPolling, stopPolling, useInstallState } from "./installs";
+import { setPanelView, usePanelView } from "./view";
 
 function LibraryButtons({ configured }: { configured: boolean }) {
   const { installed, status } = useInstallState();
@@ -95,31 +105,75 @@ async function announceUpdate() {
 }
 
 function Content() {
-  const [configured, setConfigured] = useState(false);
+  const [configured, setConfigured] = useState<boolean | null>(null);
   const [pushed, setPushed] = useState<PublicSettings | null>(null);
+  const view = usePanelView();
   const onSaved = (s: PublicSettings) => {
     setConfigured(!!s.server_url && s.has_token);
     setPushed(s);
   };
 
+  // Leaving the plugin (B / Decky's back arrow) unmounts this; start on the main page next time.
+  useEffect(() => () => setPanelView("main"), []);
+
   useEffect(() => {
-    getSettings().then((r) => r.ok && setConfigured(!!r.data.server_url && r.data.has_token));
+    getSettings().then((r) => setConfigured(r.ok && !!r.data.server_url && r.data.has_token));
   }, []);
+
+  if (configured === null) {
+    return (
+      <PanelSection>
+        <SteamSpinner />
+      </PanelSection>
+    );
+  }
+
+  if (view === "settings") {
+    return (
+      <>
+        <SettingsPanel onSaved={onSaved} />
+        <InstallLocationPanel />
+        <ArtworkPanel
+          title="Gameyfin"
+          settings={pushed}
+          onSaved={onSaved}
+          phone={(done) => showModal(<PairingModal onPaired={done} />)}
+        />
+      </>
+    );
+  }
 
   return (
     <>
       <PluginUpdateSection />
       <LibraryButtons configured={configured} />
       <DownloadsPanel />
-      <SettingsPanel onSaved={onSaved} />
-      <ArtworkPanel
-        title="Gameyfin"
-        settings={pushed}
-        onSaved={onSaved}
-        phone={(done) => showModal(<PairingModal onPaired={done} />)}
-      />
-      <InstallLocationPanel />
+      {!configured && <SettingsPanel onSaved={onSaved} />}
     </>
+  );
+}
+
+const iconButton = { height: "28px", width: "40px", minWidth: 0, padding: "10px 12px" };
+
+/** Title bar: "Gameyfin" plus a cog that opens settings; in settings it becomes a close button.
+ *  (Decky draws its own back arrow on the left, which leaves the plugin.) */
+function TitleView() {
+  const view = usePanelView();
+  const inSettings = view === "settings";
+  return (
+    <Focusable
+      className={staticClasses.Title}
+      style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: 0, boxShadow: "none" }}
+    >
+      <div style={{ marginRight: "auto" }}>{inSettings ? "Gameyfin settings" : "Gameyfin"}</div>
+      <DialogButton style={iconButton} onClick={() => setPanelView(inSettings ? "main" : "settings")}>
+        {inSettings ? (
+          <FaTimes style={{ marginTop: "-4px", display: "block" }} />
+        ) : (
+          <FaCog style={{ marginTop: "-4px", display: "block" }} />
+        )}
+      </DialogButton>
+    </Focusable>
   );
 }
 
@@ -136,13 +190,14 @@ export default definePlugin(() => {
 
   return {
     name: "Gameyfin",
-    titleView: <div className={staticClasses.Title}>Gameyfin</div>,
+    titleView: <TitleView />,
     content: <Content />,
     icon: <FaServer />,
     onDismount() {
       routerHook.removeRoute(LIBRARY_ROUTE);
       stopPolling();
       clearTimeout(announce);
+      setPanelView("main");
       unpatchMenu();
     },
   };

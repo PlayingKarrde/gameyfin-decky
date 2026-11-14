@@ -1,4 +1,4 @@
-import { ButtonItem, PanelSection, PanelSectionRow, ProgressBarWithInfo, showModal } from "@decky/ui";
+import { ButtonItem, PanelSection, PanelSectionRow, ProgressBar, showModal } from "@decky/ui";
 import { ACTIVE_PHASES, JobState, cancelInstall, dismissJob, formatBytes } from "../backend";
 import { finishFailed, finishInstall, refresh, useInstallState } from "../installs";
 import { ExePickerModal } from "./InstallModals";
@@ -26,25 +26,35 @@ function JobRow({ job }: { job: JobState }) {
   const pct = job.total ? Math.min(100, (100 * job.done) / job.total) : undefined;
   const needsExe = job.phase === "done" && job.exe_ambiguous;
   const failedFinish = job.phase === "done" && !job.exe_ambiguous && finishFailed(job.job_id);
-  const op =
+  const remaining = eta(job);
+  const status =
     job.phase === "error"
-      ? job.error ?? "Failed"
+      ? (job.error ?? "Failed")
       : needsExe
         ? "Choose the executable"
-        : `${PHASE_TEXT[job.phase] ?? job.phase}${job.total ? ` · ${formatBytes(job.done)} / ${formatBytes(job.total)}` : ""}${
-            job.speed ? ` · ${formatBytes(job.speed)}/s` : ""
-          }`;
+        : failedFinish
+          ? "Couldn't add to Steam"
+          : `${PHASE_TEXT[job.phase] ?? job.phase}${remaining ? ` · ${remaining} left` : ""}`;
+  const detail =
+    job.phase === "error" || needsExe || failedFinish
+      ? undefined
+      : [
+          job.total ? `${formatBytes(job.done)} / ${formatBytes(job.total)}` : job.done ? formatBytes(job.done) : "",
+          job.speed ? `${formatBytes(job.speed)}/s` : ""]
+          .filter(Boolean)
+          .join(" · ");
 
   return (
     <>
       <PanelSectionRow>
-        <ProgressBarWithInfo
-          label={`${job.kind === "update" ? "Update: " : ""}${job.title ?? `Game ${job.game_id}`}`}
-          nProgress={job.phase === "done" ? 100 : pct}
-          indeterminate={active && pct == null}
-          sOperationText={op}
-          sTimeRemaining={eta(job)}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px", width: "100%", minWidth: 0 }}>
+          <div style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {`${job.kind === "update" ? "Update: " : ""}${job.title ?? `Game ${job.game_id}`}`}
+          </div>
+          <div style={{ fontSize: "12px", color: "#b8bcbf", overflowWrap: "anywhere" }}>{status}</div>
+          {detail && <div style={{ fontSize: "12px", color: "#b8bcbf" }}>{detail}</div>}
+          <ProgressBar nProgress={job.phase === "done" ? 100 : pct} indeterminate={active && pct == null} />
+        </div>
       </PanelSectionRow>
       {active && (
         <PanelSectionRow>
